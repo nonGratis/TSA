@@ -1,0 +1,76 @@
+# ----------------------------------------
+# 1. PYTHON AND ENVIRONMENT
+# ----------------------------------------
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Dependencies management
+# Note: requirements.txt should NOT be ignored!
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# ----------------------------------------
+# 2. DATA SCIENCE ARTIFACTS (Generated files)
+# ----------------------------------------
+# Trained Models (H5, Keras, TensorFlow, Pickle)
+*.h5
+*.pkl
+*.tf
+model_weights.*
+
+# Output Figures 
+*.png
+*.jpg
+*.svg
+
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# ----------------------------------------
+# 3. IDE AND SYSTEM FILES
+# ----------------------------------------
+
+# IDE (VS Code)
+.vscode/
+
+# IDE (PyCharm/JetBrains)
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+
+# Logs and temporary files
+*.log
+tmp
+*.tmp
+*.swp
+
+
+# ----------------------------------------
+# 4. OTHER FILES TO IGNORE
+# ----------------------------------------
+# Environment variables
+.env
+
+# Text files
+*.txt
+*.docx
+*.doc
+*.pdf
+*.xls
+*.xlsx
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
