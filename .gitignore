@@ -64,6 +64,7 @@ tmp
 
 # Text files
 *.txt
+!requirements.txt
 *.docx
 *.doc
 *.pdf
