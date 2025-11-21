@@ -75,3 +75,7 @@ tmp
 *.zip
 *.tar.gz
 *.rar
+
+# Tableau
+*.twb
+*.twbx
