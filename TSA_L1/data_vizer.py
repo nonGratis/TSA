@@ -1,21 +1,37 @@
 import matplotlib.pyplot as plt
 
+plt.rcParams['font.family'] = 'e-Ukraine'
+
+COLOR_PRIMARY = '#1323e9'
+COLOR_SECONDARY = '#ffaa3a'
+COLOR_ACCENT = '#eb5f54'
+COLOR_BLACK = '#000000'
+
 def plot_comprehensive_report(index, y, y_trend, residuals, degree):
     plt.figure(figsize=(10, 5))
-    plt.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', alpha=0.6)
-    plt.plot(index, y_trend, label=f'Тренд (Ступінь {degree})', color='red', linewidth=2)
-    plt.title(f'Апроксимація тренду (Ступінь {degree})')
+    plt.grid(True, alpha=0.3, zorder=0)
+    plt.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
+    plt.plot(index, y_trend, label=f'Модель тренду (поліном порядку {degree})', color=COLOR_SECONDARY, linewidth=2, zorder=3)
+    plt.title(f'Апроксимація процесу')
+    plt.xlabel('Датачас')
+    plt.ylabel('Кіл-сть відповідей (кумулятивно)')
     plt.legend()
-    plt.grid(True, alpha=0.3)
     plt.show()
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     
-    ax1.stem(index, residuals, linefmt='grey', markerfmt='ro', basefmt='k-')
-    ax1.set_title('Залишки (часова область)')
+    ax1.grid(True, alpha=0.3, zorder=0)
+    ax1.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
+    ax1.get_children()[0].set_color(COLOR_PRIMARY)
+    ax1.set_title('Залишки моделі')
+    ax1.set_xlabel('Датачас')
+    ax1.set_ylabel('Абсалютне відхилення')
     
-    ax2.hist(residuals, bins=15, color='skyblue', edgecolor='black', alpha=0.7)
-    ax2.set_title('Розподіл залишків')
+    ax2.grid(True, alpha=0.3, axis='y', zorder=0)
+    ax2.hist(residuals, bins=15, color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
+    ax2.set_title('Гістограма розподілу залишків')
+    ax2.set_xlabel('Величина похибки')
+    ax2.set_ylabel('Частота')
     
     plt.tight_layout()
     plt.show()
