@@ -40,7 +40,7 @@ def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs):
     ax1.set_ylabel('Абсалютне відхилення')
     
     ax2.grid(True, alpha=0.3, axis='y', zorder=0)
-    ax2.hist(residuals, bins=15, color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
+    ax2.hist(residuals, bins='auto', color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
     ax2.set_title('Гістограма розподілу залишків')
     ax2.set_xlabel('Величина похибки')
     ax2.set_ylabel('Частота')
