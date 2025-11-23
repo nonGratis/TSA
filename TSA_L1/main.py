@@ -31,7 +31,7 @@ def main():
     residuals = da.calculate_residuals(y, y_trend)
     print(f"Коєфіцієнти моделі: {coeffs}")
     
-    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree)
+    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree, coeffs)
 
 if __name__ == "__main__":
     main()

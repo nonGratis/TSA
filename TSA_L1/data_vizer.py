@@ -7,12 +7,24 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 
-def plot_comprehensive_report(index, y, y_trend, residuals, degree):
+def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs):
+    terms = []
+    # Формування рівняння регресії
+    for i, coef in enumerate(coeffs):
+        power = degree - i
+        if power == 0:
+            terms.append(f'{coef:.2f}')
+        elif power == 1:
+            terms.append(f'{coef:.2f}t')
+        else:
+            terms.append(f'{coef:.2f}t^{power}')
+    equation = 'y = ' + ' + '.join(terms).replace('+ -', '- ')
+    
     plt.figure(figsize=(10, 5))
     plt.grid(True, alpha=0.3, zorder=0)
     plt.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
     plt.plot(index, y_trend, label=f'Модель тренду (поліном порядку {degree})', color=COLOR_SECONDARY, linewidth=2, zorder=3)
-    plt.title(f'Апроксимація процесу')
+    plt.title(f'Апроксимація процесу\nПоліномом: {equation}', fontsize=10)
     plt.xlabel('Датачас')
     plt.ylabel('Кіл-сть відповідей (кумулятивно)')
     plt.legend()
