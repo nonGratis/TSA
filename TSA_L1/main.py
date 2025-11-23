@@ -1,8 +1,7 @@
 import sys
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from data_loader import fetch_data
+import data_handler as dh
+import data_analyser as da
+import data_vizer as dv
 
 def main():
     # Перевірка аргументів командного рядка
@@ -19,6 +18,7 @@ def main():
 
     print(f"--- Запуск аналізу (Degree: {degree}) ---")
 
-    raw_data = fetch_data(url)
+    raw_df = dh.fetch_data(url)
+    clean_df = dh.prepare_timeseries(raw_df)
 if __name__ == "__main__":
     main()
