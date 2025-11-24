@@ -10,7 +10,15 @@ def fit_trend_model(df: pd.DataFrame, degree: int):
     trend_func = np.poly1d(coeffs)
     y_trend = trend_func(X)
     
-    return X, y, y_trend, coeffs
+    return X, y, y_trend, coeffs, trend_func
 
 def calculate_residuals(y_actual, y_trend):
     return y_actual - y_trend
+
+def calculate_process_velocity(y_actual, trend_model, t_points):
+    real_velocity = np.diff(y_actual, prepend=y_actual[0])
+    
+    trend_derivative_func = trend_model.deriv()
+    model_velocity = trend_derivative_func(t_points)
+    
+    return real_velocity, model_velocity
