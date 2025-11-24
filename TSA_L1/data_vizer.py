@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 plt.rcParams['font.family'] = 'e-Ukraine'
 
@@ -7,9 +8,8 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 
-def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs):
+def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs, real_velocity, model_velocity):
     terms = []
-    # Формування рівняння регресії
     for i, coef in enumerate(coeffs):
         power = degree - i
         if power == 0:
@@ -20,30 +20,36 @@ def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs):
             terms.append(f'{coef:.2f}t^{power}')
     equation = 'y = ' + ' + '.join(terms).replace('+ -', '- ')
     
-    plt.figure(figsize=(10, 5))
-    plt.grid(True, alpha=0.3, zorder=0)
-    plt.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
-    plt.plot(index, y_trend, label=f'Модель тренду (поліном порядку {degree})', color=COLOR_SECONDARY, linewidth=2, zorder=3)
-    plt.title(f'Апроксимація процесу\nПоліномом: {equation}', fontsize=10)
-    plt.xlabel('Датачас')
-    plt.ylabel('Кіл-сть відповідей (кумулятивно)')
-    plt.legend()
-    plt.show()
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    fig, ((ax1, ax4), (ax2, ax3)) = plt.subplots(2, 2, figsize=(16, 10))
     
     ax1.grid(True, alpha=0.3, zorder=0)
-    ax1.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
-    ax1.get_children()[0].set_color(COLOR_PRIMARY)
-    ax1.set_title('Залишки моделі')
+    ax1.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
+    ax1.plot(index, y_trend, label=f'Модель тренду (поліном порядку {degree})', color=COLOR_SECONDARY, linewidth=2, zorder=3)
+    ax1.set_title(f'Апроксимація процесу\nПоліномом: {equation}', fontsize=10)
     ax1.set_xlabel('Датачас')
-    ax1.set_ylabel('Абсалютне відхилення')
+    ax1.set_ylabel('Кіл-сть відповідей (кумулятивно)')
+    ax1.legend()
     
-    ax2.grid(True, alpha=0.3, axis='y', zorder=0)
-    ax2.hist(residuals, bins='auto', color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
-    ax2.set_title('Гістограма розподілу залишків')
-    ax2.set_xlabel('Величина похибки')
-    ax2.set_ylabel('Частота')
+    ax2.grid(True, alpha=0.3, zorder=0)
+    ax2.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
+    ax2.get_children()[0].set_color(COLOR_PRIMARY)
+    ax2.set_title('Залишки моделі')
+    ax2.set_xlabel('Датачас')
+    ax2.set_ylabel('Абсалютне відхилення')
+    
+    ax3.grid(True, alpha=0.3, axis='y', zorder=0)
+    ax3.hist(residuals, bins='auto', color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
+    ax3.set_title('Гістограма розподілу залишків')
+    ax3.set_xlabel('Величина похибки')
+    ax3.set_ylabel('Частота')
+    
+    ax4.grid(True, alpha=0.3, zorder=0)
+    ax4.plot(index, real_velocity, color=COLOR_PRIMARY, linestyle='None', marker='o', markersize=4, alpha=0.8, label='Фактичний приріст')
+    ax4.plot(index, model_velocity, color=COLOR_ACCENT, linewidth=2.5, linestyle='--', label='Модельна швидкість')
+    ax4.set_title('Аналіз динаміки інтенсивності процесу (Перша похідна)')
+    ax4.set_xlabel('Датачас')
+    ax4.set_ylabel('Швидкість (кількість/год)')
+    ax4.legend()
     
     plt.tight_layout()
     plt.show()

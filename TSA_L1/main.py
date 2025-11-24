@@ -27,11 +27,13 @@ def main():
         
     clean_df = dh.prepare_timeseries(raw_df)
 
-    X, y, y_trend, coeffs = da.fit_trend_model(clean_df, degree)
+    X, y, y_trend, coeffs, trend_func = da.fit_trend_model(clean_df, degree)
     residuals = da.calculate_residuals(y, y_trend)
+    real_vel, model_vel = da.calculate_process_velocity(y, trend_func, X)
+    
     print(f"Коєфіцієнти моделі: {coeffs}")
     
-    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree, coeffs)
+    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree, coeffs, real_vel, model_vel)
 
 if __name__ == "__main__":
     main()
