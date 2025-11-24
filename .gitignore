@@ -70,6 +70,7 @@ tmp
 *.pdf
 *.xls
 *.xlsx
+*.csv
 
 # Archives
 *.zip
