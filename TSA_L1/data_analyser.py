@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 def fit_trend_model(df: pd.DataFrame, degree: int):
-    y = df['r_id'].values
+    y = np.array(df['r_id'].values, dtype=float)
     X = np.arange(len(y))
     
     # Метод найменших квадратів
