@@ -33,6 +33,12 @@ def main():
     
     print(f"Коєфіцієнти моделі: {coeffs}")
     
+    mean, variance, std = da.calculate_statistics(residuals)    
+    print(f"\n--- Статистика залишків ---")
+    print(f"Математичне сподівання (M): {mean:.4f}")
+    print(f"Дисперсія (D): {variance:.4f}")
+    print(f"Стандартне відхилення (σ): {std:.4f}")
+    
     dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree, coeffs, real_vel, model_vel)
 
 if __name__ == "__main__":
