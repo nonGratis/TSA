@@ -5,8 +5,6 @@ matplotlib
 
 # Парсинг даних (ЛР1)
 requests
-bs4
-json
 
 # Статистичне моделювання, ML та апроксимація (ЛР2, 4, 5, 6)
 statsmodels
