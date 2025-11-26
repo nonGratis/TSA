@@ -53,3 +53,22 @@ def calculate_statistics(data):
 def check_normality(residuals):
     stat, p_value = stats.shapiro(residuals)
     return p_value
+
+def generate_noise(std, size, distribution='normal'):
+    if distribution == 'normal':
+        noise = np.random.normal(loc=0, scale=std, size=size)
+    elif distribution == 'uniform':
+        delta = std * np.sqrt(3)
+        noise = np.random.uniform(low=-delta, high=delta, size=size)
+    elif distribution == 'exponential':
+        noise = np.random.exponential(scale=std, size=size)
+        noise = noise - np.mean(noise)
+        
+    else:
+        raise ValueError(f"Невідомий тип розподілу: {distribution}")
+    
+    return noise
+
+def generate_synthetic_data(y_trend, std, distribution='normal'):
+    noise = generate_noise(std, len(y_trend), distribution)
+    return y_trend + noise

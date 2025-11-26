@@ -1,3 +1,4 @@
+import re
 import sys
 import data_loader as dl
 import data_handler as dh
@@ -43,8 +44,34 @@ def main():
     p_value = da.check_normality(residuals)
     print(f"\nТест нормальності залишків (Шапіро-Вілка): p-value = {p_value:.4f}")
     
+    print("\nОберіть тип розподілу для генерації шуму:")
+    print("  1 - Нормальний")
+    print("  2 - Рівномірний")
+    print("  3 - Експоненціальний")
+    noise_choice = input("Номер:").strip()
+    
+    noise_map = {'1': 'normal', '2': 'uniform', '3': 'exponential'}
+    distribution = noise_map.get(noise_choice, 'normal')
+    
     y_synthetic = da.generate_synthetic_data(y_trend, resid_std, distribution)
     residuals_synthetic = da.calculate_residuals(y, y_synthetic)
+    
+    print(f"\n{'Компонента':<30} | {'M (μ)':<12} | {'D (σ²)':<12} | {'Std (σ)':<12}")
+    print("-" * 75)
+
+    datasets = {
+        "Експерементальні дані": y,
+        "Теоретична модель": y_trend,
+        "Залишки теоретичної моделі": residuals,
+        f"Синтетична модель ({distribution})": y_synthetic,
+        f"Залишки синтетичної моделі ({distribution})": residuals_synthetic
+    }
+    for name, data in datasets.items():
+        m, v, s = da.calculate_statistics(data)
+        print(f"{name:<30} | {m:<12.2f} | {v:<12.2f} | {s:<12.2f}")
+    print("-" * 75)
+        
+    print(f"\nКоєфіцієнти моделі: {coeffs}")
     
     dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, model_type, coeffs)
 
