@@ -37,13 +37,13 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_t
     ax2.grid(True, alpha=0.3, zorder=0)
     ax2.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
     ax2.get_children()[0].set_color(COLOR_PRIMARY)
-    ax2.set_title('Залишки моделі')
+    ax2.set_title('Залишки теоретичної моделі')
     ax2.set_xlabel('Датачас')
     ax2.set_ylabel('Абсалютне відхилення')
     
     ax3.grid(True, alpha=0.3, axis='y', zorder=0)
     ax3.hist(residuals, bins='auto', color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
-    ax3.set_title('Гістограма розподілу залишків')
+    ax3.set_title('Гістограма розподілу залишків теоретичної моделі')
     ax3.set_xlabel('Величина похибки')
     ax3.set_ylabel('Частота')
     
