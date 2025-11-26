@@ -1,14 +1,20 @@
 import numpy as np
 import pandas as pd
 def df_info(df: pd.DataFrame):
-    print("\nДискрептивна статистика даних:")
-    print(df.describe().T.round(2))
-    print("\nДискрептивна статистика позначок часу:")
-    ts_temp = pd.to_datetime(df['timestamp'], dayfirst=False, errors='coerce', format='%d.%m.%Y %H:%M:%S')
-    print(f"Початок:    {ts_temp.min()}")
-    print(f"Кінець:     {ts_temp.max()}")
-    print(f"Тривалість: {ts_temp.max() - ts_temp.min()}")
-    print(f"Пропусків:  {ts_temp.isna().sum()}\n")
+    print(f"Кількість записів: {len(df)}")
+    
+    ts = pd.to_datetime(df['timestamp'], format='%d.%m.%Y %H:%M:%S')
+    
+    print(f"\nЧасовий діапазон:")
+    print(f"    Початок:    {ts.min()}")
+    print(f"    Кінець:     {ts.max()}")
+    print(f"    Тривалість: {ts.max() - ts.min()}")
+    
+    print(f"\nСтатистика по r_id:")
+    print(f"    Min:  {df['r_id'].min():.2f}")
+    print(f"    Max:  {df['r_id'].max():.2f}")
+    print(f"    Mean: {df['r_id'].mean():.2f}")
+    print(f"    Std:  {df['r_id'].std():.2f}")
 
 
 def fit_polynomial_trend(df: pd.DataFrame, degree: int):
