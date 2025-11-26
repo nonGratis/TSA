@@ -17,6 +17,8 @@ def main():
     if raw_df is None:
         print("Помилка: Не вдалося завантажити або обробити дані.")
         sys.exit(1)
+    
+    da.df_info(raw_df)
         
     clean_df = dh.prepare_timeseries(raw_df)
     

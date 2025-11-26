@@ -1,5 +1,15 @@
 import numpy as np
 import pandas as pd
+def df_info(df: pd.DataFrame):
+    print("\nДискрептивна статистика даних:")
+    print(df.describe().T.round(2))
+    print("\nДискрептивна статистика позначок часу:")
+    ts_temp = pd.to_datetime(df['timestamp'], dayfirst=False, errors='coerce', format='%d.%m.%Y %H:%M:%S')
+    print(f"Початок:    {ts_temp.min()}")
+    print(f"Кінець:     {ts_temp.max()}")
+    print(f"Тривалість: {ts_temp.max() - ts_temp.min()}")
+    print(f"Пропусків:  {ts_temp.isna().sum()}\n")
+
 
 def fit_trend_model(df: pd.DataFrame, degree: int):
     y = np.array(df['r_id'].values, dtype=float)
