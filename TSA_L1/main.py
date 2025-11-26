@@ -10,13 +10,7 @@ def main():
         print("Використання: python main.py <URL> <СТУПІНЬ_ПОЛІНОМА>")
         sys.exit(1)
 
-    url = sys.argv[1]
-    try:
-        degree = int(sys.argv[2])
-    except ValueError:
-        print("Помилка: Ступінь має бути цілим числом")
-        sys.exit(1)
-
+    url, degree = sys.argv[1], int(sys.argv[2])
 
     raw_df = dl.fetch_data(url)
     
