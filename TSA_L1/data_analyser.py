@@ -25,11 +25,10 @@ def fit_trend_model(df: pd.DataFrame, degree: int):
 def calculate_residuals(y_actual, y_trend):
     return y_actual - y_trend
 
-def calculate_statistics(residuals):
-    mean = np.mean(residuals)
-    variance = np.var(residuals)
-    std = np.std(residuals)
-    
+def calculate_statistics(data):
+    mean = np.mean(data)
+    variance = np.var(data)
+    std = np.std(data)
     return mean, variance, std
 
 def calculate_process_velocity(y_actual, trend_model, t_points):
