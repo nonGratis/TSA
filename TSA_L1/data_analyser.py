@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from scipy import stats
+
 def df_info(df: pd.DataFrame):
     print(f"Кількість записів: {len(df)}")
     
@@ -48,6 +50,10 @@ def calculate_statistics(data):
     std = np.std(data)
     return mean, variance, std
 
+def check_normality(residuals):
+    stat, p_value = stats.shapiro(residuals)
+    return p_value
+
 def calculate_process_velocity(y_actual, trend_model, t_points):
     real_velocity = np.diff(y_actual, prepend=y_actual[0])
     
@@ -55,3 +61,4 @@ def calculate_process_velocity(y_actual, trend_model, t_points):
     model_velocity = trend_derivative_func(t_points)
     
     return real_velocity, model_velocity
+

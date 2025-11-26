@@ -38,7 +38,8 @@ def main():
         sys.exit(1)
     
     residuals = da.calculate_residuals(y, y_trend)
-    real_vel, model_vel = da.calculate_process_velocity(y, trend_func, X)
+    p_value = da.check_normality(residuals)
+    print(f"\nТест нормальності залишків (Шапіро-Вілка): p-value = {p_value:.4f}")
     
     print(f"Коєфіцієнти моделі: {coeffs}")
     
