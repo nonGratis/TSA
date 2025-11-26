@@ -2,7 +2,7 @@ import pandas as pd
 
 def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='%d.%m.%Y %H:%M:%S')
     df = df.set_index('timestamp')
 
     df_resampled = df.resample('1h').last().interpolate(method='linear').fillna(0)
