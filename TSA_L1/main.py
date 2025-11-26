@@ -17,7 +17,6 @@ def main():
         print("Помилка: Ступінь має бути цілим числом")
         sys.exit(1)
 
-    print(f"--- Запуск аналізу (Ступінь: {degree}) ---")
 
     raw_df = dl.fetch_data(url)
     
@@ -26,6 +25,8 @@ def main():
         sys.exit(1)
         
     clean_df = dh.prepare_timeseries(raw_df)
+    
+    print(f"--- Запуск аналізу (Ступінь: {degree}) ---")
 
     X, y, y_trend, coeffs, trend_func = da.fit_trend_model(clean_df, degree)
     residuals = da.calculate_residuals(y, y_trend)
