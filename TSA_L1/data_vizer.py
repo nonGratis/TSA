@@ -48,11 +48,11 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_t
     ax3.set_ylabel('Частота')
     
     ax4.grid(True, alpha=0.3, zorder=0)
-    ax4.plot(index, real_velocity, color=COLOR_PRIMARY, linestyle='None', marker='o', markersize=4, alpha=0.8, label='Фактичний приріст')
-    ax4.plot(index, model_velocity, color=COLOR_ACCENT, linewidth=2.5, linestyle='--', label='Модельна швидкість')
-    ax4.set_title('Аналіз динаміки інтенсивності процесу (Перша похідна)')
+    ax4.plot(index, y, color=COLOR_PRIMARY, linestyle='None', marker='o', markersize=4, alpha=0.8, label='Фактичні дані')
+    ax4.plot(index, y_synthetic, color=COLOR_ACCENT, linewidth=2, alpha=0.7, label='Синтезовані дані')
+    ax4.set_title('Порівняння фактичних та синтезованих даних')
     ax4.set_xlabel('Датачас')
-    ax4.set_ylabel('Швидкість (кількість/год)')
+    ax4.set_ylabel('Кіл-сть відповідей (кумулятивно)')
     ax4.legend()
     
     plt.tight_layout()

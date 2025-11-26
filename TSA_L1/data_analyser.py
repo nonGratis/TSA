@@ -53,12 +53,3 @@ def calculate_statistics(data):
 def check_normality(residuals):
     stat, p_value = stats.shapiro(residuals)
     return p_value
-
-def calculate_process_velocity(y_actual, trend_model, t_points):
-    real_velocity = np.diff(y_actual, prepend=y_actual[0])
-    
-    trend_derivative_func = trend_model.deriv()
-    model_velocity = trend_derivative_func(t_points)
-    
-    return real_velocity, model_velocity
-

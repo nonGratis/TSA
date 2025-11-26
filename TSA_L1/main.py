@@ -38,18 +38,15 @@ def main():
         sys.exit(1)
     
     residuals = da.calculate_residuals(y, y_trend)
+    _, _, resid_std = da.calculate_statistics(residuals)
+    
     p_value = da.check_normality(residuals)
     print(f"\nТест нормальності залишків (Шапіро-Вілка): p-value = {p_value:.4f}")
     
-    print(f"Коєфіцієнти моделі: {coeffs}")
+    y_synthetic = da.generate_synthetic_data(y_trend, resid_std, distribution)
+    residuals_synthetic = da.calculate_residuals(y, y_synthetic)
     
-    mean, variance, std = da.calculate_statistics(residuals)    
-    print(f"\n--- Статистика залишків ---")
-    print(f"Математичне сподівання (M): {mean:.4f}")
-    print(f"Дисперсія (D): {variance:.4f}")
-    print(f"Стандартне відхилення (σ): {std:.4f}")
-    
-    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, degree, coeffs, real_vel, model_vel)
+    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, model_type, coeffs)
 
 if __name__ == "__main__":
     main()
