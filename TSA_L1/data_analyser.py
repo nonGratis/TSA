@@ -11,7 +11,7 @@ def df_info(df: pd.DataFrame):
     print(f"Пропусків:  {ts_temp.isna().sum()}\n")
 
 
-def fit_trend_model(df: pd.DataFrame, degree: int):
+def fit_polynomial_trend(df: pd.DataFrame, degree: int):
     y = np.array(df['r_id'].values, dtype=float)
     X = np.arange(len(y))
     
@@ -20,7 +20,18 @@ def fit_trend_model(df: pd.DataFrame, degree: int):
     trend_func = np.poly1d(coeffs)
     y_trend = trend_func(X)
     
-    return X, y, y_trend, coeffs, trend_func
+    return X, y, y_trend, coeffs
+
+def fit_logarithmic_trend(df: pd.DataFrame):
+    y = np.array(df['r_id'].values, dtype=float)
+    X = np.arange(1, len(y) + 1)
+    
+    X_log = np.log(X)
+    coeffs = np.polyfit(X_log, y, 1)
+    
+    y_trend = coeffs[0] * X_log + coeffs[1]
+    
+    return np.arange(len(y)), y, y_trend, coeffs
 
 def calculate_residuals(y_actual, y_trend):
     return y_actual - y_trend

@@ -5,12 +5,11 @@ import data_analyser as da
 import data_vizer as dv
 
 def main():
-    # Перевірка аргументів командного рядка
-    if len(sys.argv) < 3:
-        print("Використання: python main.py <URL> <СТУПІНЬ_ПОЛІНОМА>")
+    if len(sys.argv) < 2:
+        print("Використання: python main.py <URL>")
         sys.exit(1)
 
-    url, degree = sys.argv[1], int(sys.argv[2])
+    url = sys.argv[1]
 
     raw_df = dl.fetch_data(url)
     
@@ -22,9 +21,22 @@ def main():
         
     clean_df = dh.prepare_timeseries(raw_df)
     
-    print(f"--- Запуск аналізу (Ступінь: {degree}) ---")
-
-    X, y, y_trend, coeffs, trend_func = da.fit_trend_model(clean_df, degree)
+    print("Оберіть тип моделі тренду:")
+    print("  1 - Поліноміальна")
+    print("  2 - Логарифмічна")
+    model_choice = input("Номер:").strip()
+    
+    if model_choice == '1':
+        degree = int(input("Введіть ступінь полінома: "))
+        X, y, y_trend, coeffs = da.fit_polynomial_trend(clean_df, degree)
+        model_type = 'poly'
+    elif model_choice == '2':
+        X, y, y_trend, coeffs = da.fit_logarithmic_trend(clean_df)
+        model_type = 'log'
+    else:
+        print("Помилка: Невірний вибір моделі.")
+        sys.exit(1)
+    
     residuals = da.calculate_residuals(y, y_trend)
     real_vel, model_vel = da.calculate_process_velocity(y, trend_func, X)
     

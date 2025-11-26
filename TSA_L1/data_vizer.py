@@ -8,24 +8,28 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 
-def plot_comprehensive_report(index, y, y_trend, residuals, degree, coeffs, real_velocity, model_velocity):
-    terms = []
-    for i, coef in enumerate(coeffs):
-        power = degree - i
-        if power == 0:
-            terms.append(f'{coef:.2f}')
-        elif power == 1:
-            terms.append(f'{coef:.2f}t')
-        else:
-            terms.append(f'{coef:.2f}t^{power}')
-    equation = 'y = ' + ' + '.join(terms).replace('+ -', '- ')
+def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_type, coeffs):
+    if model_type == 'poly':
+        degree = len(coeffs) - 1
+        terms = []
+        for i, coef in enumerate(coeffs):
+            power = degree - i
+            if power == 0:
+                terms.append(f'{coef:.2f}')
+            elif power == 1:
+                terms.append(f'{coef:.2f}t')
+            else:
+                terms.append(f'{coef:.2f}t^{power}')
+        equation = 'y = ' + ' + '.join(terms).replace('+ -', '- ')
+    else:
+        equation = f'y = {coeffs[0]:.2f}·ln(t) + {coeffs[1]:.2f}'
     
     fig, ((ax1, ax4), (ax2, ax3)) = plt.subplots(2, 2, figsize=(16, 10))
     
     ax1.grid(True, alpha=0.3, zorder=0)
     ax1.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
-    ax1.plot(index, y_trend, label=f'Модель тренду (поліном порядку {degree})', color=COLOR_SECONDARY, linewidth=2, zorder=3)
-    ax1.set_title(f'Апроксимація процесу\nПоліномом: {equation}', fontsize=10)
+    ax1.plot(index, y_trend, label=f'Модель тренду', color=COLOR_SECONDARY, linewidth=2, zorder=3)
+    ax1.set_title(f'Апроксимація процесу\n{equation}', fontsize=10)
     ax1.set_xlabel('Датачас')
     ax1.set_ylabel('Кіл-сть відповідей (кумулятивно)')
     ax1.legend()
