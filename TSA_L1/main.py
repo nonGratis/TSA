@@ -37,14 +37,12 @@ def main():
     else:
         print("Помилка: Невірний вибір моделі.")
         sys.exit(1)
+    print(f"\nКоєфіцієнти моделі (старший-молодший): {coeffs}")
     
     residuals = da.calculate_residuals(y, y_trend)
-    _, _, resid_std = da.calculate_statistics(residuals)
-    
+    _, _, resid_std = da.calculate_statistics(residuals)    
     p_value = da.check_normality(residuals)
-    print(f"\nТеоретична модель тренду: {model_type}")
-    print(f"\nКоєфіцієнти моделі (старший-молодший): {coeffs}")
-    print(f"\nТест нормальності залишків (Шапіро-Вілка): p-value = {p_value:.4f}")
+    print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4f}")
     
     print("\nОберіть тип розподілу для генерації шуму:")
     print("    1 - Нормальний")
