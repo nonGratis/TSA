@@ -8,7 +8,7 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 
-def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_type, coeffs):
+def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs):
     if model_type == 'poly':
         degree = len(coeffs) - 1
         terms = []
@@ -24,7 +24,7 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_t
     else:
         equation = f'y = {coeffs[0]:.2f}·ln(t) + {coeffs[1]:.2f}'
     
-    fig, ((ax1, ax4), (ax2, ax3)) = plt.subplots(2, 2, figsize=(16, 10))
+    fig, ((ax1, ax4), (ax2, ax5), (ax3, ax6)) = plt.subplots(3, 2, figsize=(10, 12))
     
     ax1.grid(True, alpha=0.3, zorder=0)
     ax1.plot(index, y, label='Фактичні дані', marker='.', linestyle='None', color=COLOR_PRIMARY, alpha=0.6, zorder=2)
@@ -36,13 +36,13 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_t
     
     ax2.grid(True, alpha=0.3, zorder=0)
     ax2.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
-    ax2.get_children()[0].set_color(COLOR_PRIMARY)
+    ax2.get_children()[0].set_color(COLOR_SECONDARY)
     ax2.set_title('Залишки теоретичної моделі')
     ax2.set_xlabel('Датачас')
     ax2.set_ylabel('Абсалютне відхилення')
     
     ax3.grid(True, alpha=0.3, axis='y', zorder=0)
-    ax3.hist(residuals, bins='auto', color=COLOR_PRIMARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
+    ax3.hist(residuals, bins='auto', color=COLOR_SECONDARY, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
     ax3.set_title('Гістограма розподілу залишків теоретичної моделі')
     ax3.set_xlabel('Величина похибки')
     ax3.set_ylabel('Частота')
@@ -54,6 +54,19 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, model_t
     ax4.set_xlabel('Датачас')
     ax4.set_ylabel('Кіл-сть відповідей (кумулятивно)')
     ax4.legend()
+    
+    ax5.grid(True, alpha=0.3, zorder=0)
+    ax5.stem(index, residuals_synthetic, linefmt='grey', markerfmt='o', basefmt='k-')
+    ax5.get_children()[0].set_color(COLOR_ACCENT)
+    ax5.set_title('Залишки синтезованої моделі')
+    ax5.set_xlabel('Датачас')
+    ax5.set_ylabel('Абсолютне відхилення')
+    
+    ax6.grid(True, alpha=0.3, axis='y', zorder=0)
+    ax6.hist(residuals_synthetic, bins='auto', color=COLOR_ACCENT, edgecolor=COLOR_BLACK, alpha=0.7, zorder=2)
+    ax6.set_title('Гістограма розподілу залишків синтезованих даних')
+    ax6.set_xlabel('Величина похибки')
+    ax6.set_ylabel('Частота')
     
     plt.tight_layout()
     plt.show()
