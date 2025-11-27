@@ -1,4 +1,3 @@
-import re
 import sys
 import data_loader as dl
 import data_handler as dh
