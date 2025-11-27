@@ -44,7 +44,9 @@ def main():
     _, _, resid_std = da.calculate_statistics(residuals)    
     
     r_squared = da.calculate_r_squared(y, y_trend)
+    adj_r_squared = da.calculate_adjusted_r_squared(r_squared, len(y), num_params)
     print(f"\nКоефіцієнт детермінації R²: {r_squared:.4f}")
+    print(f"Скоригований R²: {adj_r_squared:.4f}")
     
     f_stat, f_p_value = da.calculate_f_statistic(r_squared, num_params, len(y))
     print(f"Критерій Фішера F-statistic: {f_stat:.2f}, p-value: {f_p_value:.2e}")

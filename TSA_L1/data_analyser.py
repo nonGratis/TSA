@@ -54,6 +54,13 @@ def calculate_r_squared(y_actual, y_trend):
     
     return r_squared
 
+def calculate_adjusted_r_squared(r_squared, n, num_params):
+    if n - num_params <= 0:
+        return 0.0
+    
+    adj_r_squared = 1 - ((1 - r_squared) * (n - 1) / (n - num_params))
+    return adj_r_squared
+
 def calculate_f_statistic(r_squared, num_params, n):
     k = num_params - 1
     
