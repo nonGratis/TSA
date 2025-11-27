@@ -40,6 +40,10 @@ def main():
     
     residuals = da.calculate_residuals(y, y_trend)
     _, _, resid_std = da.calculate_statistics(residuals)    
+    
+    r_squared = da.calculate_r_squared(y, y_trend)
+    print(f"\nКоефіцієнт детермінації R²: {r_squared:.4f}")
+    
     p_value = da.check_normality(residuals)
     print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4f}")
     

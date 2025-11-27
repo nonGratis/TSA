@@ -44,6 +44,16 @@ def fit_logarithmic_trend(df: pd.DataFrame):
 def calculate_residuals(y_actual, y_trend):
     return y_actual - y_trend
 
+def calculate_r_squared(y_actual, y_trend):
+    ss_res = np.sum((y_actual - y_trend) ** 2)
+    ss_tot = np.sum((y_actual - np.mean(y_actual)) ** 2)
+    if ss_tot == 0:
+        r_squared = 0.0
+    else:
+        r_squared = 1 - (ss_res / ss_tot)
+    
+    return r_squared
+
 def calculate_statistics(data):
     mean = np.mean(data)
     variance = np.var(data)
