@@ -7,6 +7,6 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     
     df = df.sort_index()
 
-    df_resampled = df[['r_id']].resample('1h').mean().interpolate(method='time').bfill()
+    df_resampled = df[['r_id']].resample('1h').last().interpolate(method='time').bfill()
     
     return df_resampled
