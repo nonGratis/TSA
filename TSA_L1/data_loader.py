@@ -1,41 +1,73 @@
 import pandas as pd
-import io
 import requests
 from pathlib import Path
 from datetime import datetime
+from bs4 import BeautifulSoup
+import re
 
 def fetch_data(url):
-    if "pubhtml" in url:
-        base_url = url.split("pubhtml")[0] + "pub"
-        if "?" in url:
-            params = url.split("?")[1]
-            csv_url = f"{base_url}?{params}&output=csv"
-        else:
-            csv_url = f"{base_url}?output=csv"
-    else:
-        csv_url = url
-    
     try:
-        response = requests.get(csv_url)
+        # Отримуємо HTML сторінку
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Витягуємо URL sheet зі скрипта
+        for script in soup.find_all('script'):
+            if script.string and 'pageUrl:' in script.string:
+                match = re.search(r'pageUrl:\s*"([^"]+)"', script.string)
+                if match:
+                    sheet_url = match.group(1).replace(r'\/', '/')
+                    return _parse_sheet(sheet_url)
+        
+        print("Помилка: не знайдено посилання на sheet")
+        return None
+        
+    except Exception as e:
+        print(f"Помилка: {e}")
+        return None
+
+def _parse_sheet(url):
+    try:
+        response = requests.get(url)
         response.raise_for_status()
         
-        df = pd.read_csv(io.StringIO(response.text))
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table', class_='waffle')
         
-        _save_raw_data(df)
+        if not table:
+            print("Помилка: таблицю не знайдено")
+            return None
         
+        # Парсинг всіх рядків
+        all_rows = table.find_all('tr')
+        data = []
+        
+        for row in all_rows:
+            cols = [td.get_text(strip=True) for td in row.find_all('td')]
+            if any(cols):
+                data.append(cols)
+        
+        # Перший рядок - заголовки, решта - дані
+        df = pd.DataFrame(data[1:], columns=data[0])
+        
+        # Конвертація r_id у числовий тип
+        if 'r_id' in df.columns:
+            df['r_id'] = pd.to_numeric(df['r_id'], errors='coerce')
+        
+        _save_data(df)
         return df
-
+        
     except Exception as e:
         print(f"Помилка парсингу: {e}")
         return None
 
-def _save_raw_data(df):
+def _save_data(df):
     data_dir = Path(__file__).parent / 'data'
     data_dir.mkdir(exist_ok=True)
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'{timestamp}.csv'
-    filepath = data_dir / filename
+    filepath = data_dir / f'{timestamp}.csv'
     
     df.to_csv(filepath, index=False)
     print(f"Дані збережено: {filepath}")
