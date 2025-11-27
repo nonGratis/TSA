@@ -89,7 +89,7 @@ def main():
     print("-" * 75)
         
     
-    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic_to_reality, model_type, coeffs)
+    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs)
 
 if __name__ == "__main__":
     main()

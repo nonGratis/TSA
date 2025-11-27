@@ -36,7 +36,7 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, residua
     ax2.grid(True, alpha=0.3, zorder=0)
     ax2.stem(index, residuals, linefmt='grey', markerfmt='o', basefmt='k-')
     ax2.get_children()[0].set_color(COLOR_SECONDARY)
-    ax2.set_title('Залишки теоретичної моделі')
+    ax2.set_title('Залишки теоретичної моделі до даних')
     ax2.set_xlabel('Датачас')
     ax2.set_ylabel('Абсалютне відхилення')
     
@@ -57,7 +57,7 @@ def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, residua
     ax5.grid(True, alpha=0.3, zorder=0)
     ax5.stem(index, residuals_synthetic, linefmt='grey', markerfmt='o', basefmt='k-')
     ax5.get_children()[0].set_color(COLOR_ACCENT)
-    ax5.set_title('Залишки синтезованої моделі')
+    ax5.set_title('Залишки синтезованої моделі до тренду')
     ax5.set_xlabel('Датачас')
     ax5.set_ylabel('Абсолютне відхилення')
     
