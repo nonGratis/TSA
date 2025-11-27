@@ -22,13 +22,13 @@ def main():
         
     clean_df = dh.prepare_timeseries(raw_df)
     
-    print("\n\nОберіть тип моделі тренду:")
+    print("\n\nТип моделі тренду:")
     print("    1 - Поліноміальна")
     print("    2 - Логарифмічна")
     model_choice = input("Номер:").strip()
     
     if model_choice == '1':
-        degree = int(input("Введіть степінь полінома: "))
+        degree = int(input("Степінь полінома: "))
         X, y, y_trend, coeffs = da.fit_polynomial_trend(clean_df, degree)
         model_type = 'poly'
     elif model_choice == '2':
@@ -44,7 +44,7 @@ def main():
     p_value = da.check_normality(residuals)
     print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4f}")
     
-    print("\nОберіть тип розподілу для генерації шуму:")
+    print("\nТип розподілу генерації шуму:")
     print("    1 - Нормальний")
     print("    2 - Рівномірний")
     print("    3 - Експоненціальний")
