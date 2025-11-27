@@ -18,6 +18,12 @@ def df_info(df: pd.DataFrame):
     print(f"    Mean: {df['r_id'].mean():.2f}")
     print(f"    Std:  {df['r_id'].std():.2f}")
 
+def set_random_seed(seed):
+    if seed is not None:
+        np.random.seed(seed)
+        print(f"seed: {seed}")
+    else:
+        print("seed: random")
 
 def fit_polynomial_trend(df: pd.DataFrame, degree: int):
     y = np.array(df['r_id'].values, dtype=float)

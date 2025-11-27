@@ -1,15 +1,18 @@
 import sys
+import argparse
 import data_loader as dl
 import data_handler as dh
 import data_analyser as da
 import data_vizer as dv
 
 def main():
-    if len(sys.argv) < 2:
-        print("Використання: python main.py <URL>")
-        sys.exit(1)
-
-    url = sys.argv[1]
+    parser = argparse.ArgumentParser(description='Аналіз часових рядів')
+    parser.add_argument('url', help='URL Google Sheets')
+    parser.add_argument('--seed', nargs='?', const=2330, type=int, default=None,
+                        help='seed для встановлення зрізу випадкової генерації (default: 2330)')
+    
+    args = parser.parse_args()    
+    url = args.url
 
     raw_df = dl.fetch_data(url)
     
@@ -20,6 +23,8 @@ def main():
     da.df_info(raw_df)
         
     clean_df = dh.prepare_timeseries(raw_df)
+    
+    da.set_random_seed(args.seed)
     
     print("\n\nТип моделі тренду:")
     print("    1 - Поліноміальна")
