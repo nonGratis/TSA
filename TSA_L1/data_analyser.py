@@ -54,6 +54,18 @@ def calculate_r_squared(y_actual, y_trend):
     
     return r_squared
 
+def calculate_f_statistic(r_squared, num_params, n):
+    k = num_params - 1
+    
+    if k > 0 and (n - k - 1) > 0 and r_squared < 1.0:
+        f_stat = (r_squared / k) / ((1 - r_squared) / (n - k - 1))
+        p_value = 1 - stats.f.cdf(f_stat, k, n - k - 1)
+    else:
+        f_stat = 0.0
+        p_value = 1.0
+    
+    return f_stat, p_value
+
 def calculate_statistics(data):
     mean = np.mean(data)
     variance = np.var(data)

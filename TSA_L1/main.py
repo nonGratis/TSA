@@ -30,9 +30,11 @@ def main():
         degree = int(input("Степінь полінома: "))
         X, y, y_trend, coeffs = da.fit_polynomial_trend(clean_df, degree)
         model_type = 'poly'
+        num_params = degree + 1
     elif model_choice == '2':
         X, y, y_trend, coeffs = da.fit_logarithmic_trend(clean_df)
         model_type = 'log'
+        num_params = 2
     else:
         print("Помилка: Невірний вибір моделі.")
         sys.exit(1)
@@ -44,8 +46,11 @@ def main():
     r_squared = da.calculate_r_squared(y, y_trend)
     print(f"\nКоефіцієнт детермінації R²: {r_squared:.4f}")
     
+    f_stat, f_p_value = da.calculate_f_statistic(r_squared, num_params, len(y))
+    print(f"Критерій Фішера F-statistic: {f_stat:.2f}, p-value: {f_p_value:.2e}")
+    
     p_value = da.check_normality(residuals)
-    print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4f}")
+    print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4e}")
     
     print("\nТип розподілу генерації шуму:")
     print("    1 - Нормальний")
