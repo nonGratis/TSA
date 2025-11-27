@@ -7,15 +7,14 @@ import re
 
 def fetch_data(url):
     try:
-        # Отримуємо HTML сторінку
         response = requests.get(url)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Витягуємо URL sheet зі скрипта
+        
         for script in soup.find_all('script'):
             if script.string and 'pageUrl:' in script.string:
-                match = re.search(r'pageUrl:\s*"([^"]+)"', script.string)
+                match = re.search(r'pageUrl:\s*"([^"]+)"', script.string) # Витяг посилання на таблицю
                 if match:
                     sheet_url = match.group(1).replace(r'\/', '/')
                     return _parse_sheet(sheet_url)
@@ -37,24 +36,20 @@ def _parse_sheet(url):
         
         if not table:
             print("Помилка: таблицю не знайдено")
+            
             return None
         
-        # Парсинг всіх рядків
         all_rows = table.find_all('tr')
         data = []
         
         for row in all_rows:
             cols = [td.get_text(strip=True) for td in row.find_all('td')]
             if any(cols):
-                data.append(cols)
+                data.append(cols)        
+        df = pd.DataFrame(data[1:], columns=data[0]) # перрший як заголовки
         
-        # Перший рядок - заголовки, решта - дані
-        df = pd.DataFrame(data[1:], columns=data[0])
-        
-        # Конвертація r_id у числовий тип
         if 'r_id' in df.columns:
-            df['r_id'] = pd.to_numeric(df['r_id'], errors='coerce')
-        
+            df['r_id'] = pd.to_numeric(df['r_id'], errors='coerce')        
         _save_data(df)
         return df
         
