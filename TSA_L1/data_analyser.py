@@ -82,8 +82,8 @@ def calculate_f_statistic(r_squared, num_params, n):
 
 def calculate_statistics(data):
     mean = np.mean(data)
-    variance = np.var(data)
-    std = np.std(data)
+    variance = np.var(data, ddof=1)
+    std = np.std(data, ddof=1)
     return mean, variance, std
 
 def check_normality(residuals):
