@@ -7,7 +7,7 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 
-def plot_comprehensive_report(index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs):
+def plot_report(index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs):
     if model_type == 'poly':
         degree = len(coeffs) - 1
         terms = []

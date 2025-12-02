@@ -90,7 +90,7 @@ def main():
     print("\nТест Колмогорова-Смірнова (порівняння розподілів реального та синтетичного шумів):")
     print(f"Statistic: {ks_stat:.4f}, p-value: {ks_p_value:.4f}")        
     
-    dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs)
+    dv.plot_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs)
 
 if __name__ == "__main__":
     main()
