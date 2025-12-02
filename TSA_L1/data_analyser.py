@@ -54,7 +54,8 @@ def calculate_r_squared(y_actual, y_trend):
     ss_res = np.sum((y_actual - y_trend) ** 2)
     ss_tot = np.sum((y_actual - np.mean(y_actual)) ** 2)
     if ss_tot == 0:
-        r_squared = 0.0
+        print("ss_tot = 0. R² не визначений (повертається np.nan), всі вхідні знач. однакові")
+        r_squared = np.nan
     else:
         r_squared = 1 - (ss_res / ss_tot)
     
