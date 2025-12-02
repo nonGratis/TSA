@@ -69,7 +69,7 @@ def main():
     distribution = noise_map.get(noise_choice, 'normal')
     
     y_synthetic = da.generate_synthetic_data(y_trend, resid_std, distribution)
-    residuals_synthetic = da.calculate_residuals(y_trend, y_synthetic)
+    residuals_synthetic = da.calculate_residuals(y_synthetic, y_trend)
     
     print(f"\n{'Компонента':<30} | {'M (μ)':<12} | {'D (σ²)':<12} | {'Std (σ)':<12}")
     print("-" * 75)
