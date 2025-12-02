@@ -90,6 +90,10 @@ def check_normality(residuals):
     stat, p_value = stats.shapiro(residuals)
     return p_value
 
+def compare_distributions_ks(data1, data2):
+    statistic, p_value = stats.ks_2samp(data1, data2) # Колмогорова-Смірнова для двох вибірок
+    return statistic, p_value
+
 def generate_noise(std, size, distribution='normal'):
     if distribution == 'normal':
         noise = np.random.normal(loc=0, scale=std, size=size)

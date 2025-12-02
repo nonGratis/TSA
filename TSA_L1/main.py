@@ -85,7 +85,10 @@ def main():
         m, v, s = da.calculate_statistics(data)
         print(f"{name:<30} | {m:<12.2f} | {v:<12.2f} | {s:<12.2f}")
     print("-" * 75)
-        
+    
+    ks_stat, ks_p_value = da.compare_distributions_ks(residuals, residuals_synthetic)
+    print("\nТест Колмогорова-Смірнова (порівняння розподілів реального та синтетичного шумів):")
+    print(f"Statistic: {ks_stat:.4f}, p-value: {ks_p_value:.4f}")        
     
     dv.plot_comprehensive_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs)
 
