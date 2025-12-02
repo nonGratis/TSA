@@ -48,6 +48,7 @@ def plot_report(index, y, y_trend, residuals, y_synthetic, residuals_synthetic, 
     
     ax4.grid(True, alpha=0.3, zorder=0)
     ax4.plot(index, y, color=COLOR_PRIMARY, linestyle='None', marker='o', markersize=4, alpha=0.8, label='Фактичні дані')
+    ax4.plot(index, y_trend, color=COLOR_SECONDARY, linewidth=2, alpha=0.7, label='Модель тренду')
     ax4.plot(index, y_synthetic, color=COLOR_ACCENT, linewidth=2, alpha=0.7, label='Синтезовані дані')
     ax4.set_title('Порівняння фактичних та синтезованих даних')
     ax4.set_xlabel('Датачас')
