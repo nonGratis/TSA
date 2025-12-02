@@ -30,9 +30,9 @@ def main():
     y = np.array(clean_df['r_id'].values, dtype=float)
     synthesizer = ModelSynthesizer(y)
     
-    # Визначення моделі: мануально або автоматично
-    if args.model:
-        model_type = args.model  # 'poly' або 'log'
+    # moдель
+    if args.model: # Визначення моделі: мануально або автоматично
+        model_type = args.model
         degree = args.degree if args.model == 'poly' else None
         y_trend, coeffs, model_type = synthesizer.build_trend(model_type, degree)
         distribution = args.noise if args.noise else 'normal'
@@ -52,10 +52,10 @@ def main():
     y_synthetic = synthesizer.generate_synthetic_data(y_trend, residuals, distribution)
     residuals_synthetic = da.calculate_residuals(y_synthetic, y_trend)
     
-    # Статистичний звіт
+    # звіт
     da.print_statistics_report(y, y_trend, y_synthetic, residuals, residuals_synthetic, coeffs, distribution)
     
-    # Візуалізація
+    # віз
     dv.plot_report(clean_df.index, y, y_trend, residuals, y_synthetic, residuals_synthetic, model_type, coeffs)
 
 if __name__ == "__main__":

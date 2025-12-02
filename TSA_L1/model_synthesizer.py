@@ -1,13 +1,10 @@
 import numpy as np
-import pandas as pd
+from scipy import stats
+from math import factorial
 from typing import Tuple, Dict, Optional, Any
 
 class ModelSynthesizer:
-    """
-    Автоматичний синтез математичної моделі часового ряду
-    відповідно до лекційних матеріалів (термін №3-5, №35)
-    """
-    
+
     def __init__(self, y: np.ndarray, max_degree: int = 6):
         """
         Args:
@@ -21,8 +18,7 @@ class ModelSynthesizer:
         
     def analyze_trend_type(self) -> Dict[str, Any]:
         """
-        Етап 1: Визначення характеру тренду
-        
+        Визначаємо хар-тер тренду        
         Returns:
             dict: {
                 'type': 'monotonic' | 'seasonal' | 'mixed',
@@ -68,22 +64,25 @@ class ModelSynthesizer:
                 return 'exp'        
         return 'poly'
     
+    def _calculate_r2(self, y_actual: np.ndarray, y_pred: np.ndarray) -> float:
+        """Обчислення коефіцієнта детермінації R²"""
+        ss_res = np.sum((y_actual - y_pred)**2)
+        ss_tot = np.sum((y_actual - np.mean(y_actual))**2)
+        return 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+    
     def _test_logarithmic(self) -> bool:
         """Перевірка відповідності логарифмічній моделі"""
         if self.n < 10:
             return False
         
-        X_log = np.log(self.X[1:] + 1)
+        x_log = np.log(self.X[1:] + 1)
         y_subset = self.y[1:]
         
-        coeffs = np.polyfit(X_log, y_subset, 1)
-        y_pred = coeffs[0] * X_log + coeffs[1]
+        coeffs = np.polyfit(x_log, y_subset, 1)
+        y_pred = coeffs[0] * x_log + coeffs[1]
         
-        ss_res = np.sum((y_subset - y_pred)**2)
-        ss_tot = np.sum((y_subset - np.mean(y_subset))**2)
-        r2_log = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        
-        return r2_log > 0.85
+        r2 = self._calculate_r2(y_subset, y_pred)
+        return r2 > 0.85
     
     def _test_exponential(self) -> bool:
         """Перевірка відповідності експоненційній моделі"""
@@ -94,11 +93,8 @@ class ModelSynthesizer:
         coeffs = np.polyfit(self.X, y_log, 1)
         y_pred = coeffs[0] * self.X + coeffs[1]
         
-        ss_res = np.sum((y_log - y_pred)**2)
-        ss_tot = np.sum((y_log - np.mean(y_log))**2)
-        r2_exp = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        
-        return r2_exp > 0.85    
+        r2 = self._calculate_r2(y_log, y_pred)
+        return r2 > 0.85    
 
     def build_trend(self, model_type: str, degree: Optional[int] = None, coeffs: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray, str]:
         """
@@ -121,13 +117,13 @@ class ModelSynthesizer:
             
         elif model_type == 'log':
             if coeffs is None:
-                X_log = np.log(self.X[1:] + 1)
-                coeffs = np.polyfit(X_log, self.y[1:], 1)
+                x_log = np.log(self.X[1:] + 1)
+                coeffs = np.polyfit(x_log, self.y[1:], 1)
             
             y_trend = np.zeros_like(self.y, dtype=float)
             y_trend[0] = coeffs[1]
-            X_log = np.log(self.X[1:] + 1)
-            y_trend[1:] = coeffs[0] * X_log + coeffs[1]
+            x_log = np.log(self.X[1:] + 1)
+            y_trend[1:] = coeffs[0] * x_log + coeffs[1]
             
         elif model_type == 'exp':
             if coeffs is None:
@@ -144,12 +140,12 @@ class ModelSynthesizer:
     
     def generate_synthetic_data(self, y_trend: np.ndarray, residuals: np.ndarray, distribution: str = 'normal') -> np.ndarray:
         """
-        Генерація синтетичних даних на основі тренду та розподілу залишків
+        Генерація синтетичних даних на основі тренду, розподілу залишків
         
         Args:
-            y_trend: Тренд моделі
-            residuals: Залишки (y_actual - y_trend) для обчислення стандартного відхилення
-            distribution: Тип розподілу шуму ('normal' | 'uniform')
+            y_trend: Тренд
+            residuals: Залишки (y_actual - y_trend) для обчислення std
+            distribution: Розподіл
             
         Returns:
             Синтетичні дані (y_trend + noise)
@@ -168,8 +164,7 @@ class ModelSynthesizer:
     
     def find_optimal_polynomial_degree(self) -> Tuple[int, Dict]:
         """
-        Етап 3: Визначення оптимального порядку полінома
-        за критерієм мінімуму різниці СКВ похідних (термін №35)
+        Етап 3: Визначення за критерієм мінімуму різниці СКВ похідних
         
         Returns:
             (optimal_degree, diagnostics)
@@ -193,12 +188,12 @@ class ModelSynthesizer:
             if p > 0:
                 poly_deriv = poly.deriv(p)
                 
-                from math import factorial
+                
                 sigma_theor = sigma_exp * factorial(p)
             else:
                 sigma_theor = sigma_exp
             
-            if p > 0 and p < len(self.y) - 1 and poly_deriv is not None:
+            if 0 < p < len(self.y) - 1 and poly_deriv is not None:
                 y_deriv_exp = self._numerical_derivative(self.y, p)
                 y_deriv_theor = poly_deriv(self.X[p:])
                 
@@ -259,9 +254,8 @@ class ModelSynthesizer:
                 'recommended_distribution': str
             }
         """
-        print("="*60)
-        print("ЕТАП 4.2: СИНТЕЗ МАТЕМАТИЧНОЇ МОДЕЛІ")
-        print("="*60)
+        print("="*69)
+        print("СИНТЕЗ МАТЕМАТИЧНОЇ МОДЕЛІ")
         
         print("\n[1/3] Аналіз характеру тренду...")
         trend_info = self.analyze_trend_type()
@@ -285,19 +279,20 @@ class ModelSynthesizer:
             print(f"    Оптимальний порядок полінома: {degree}")
             print(f"    R²: {diagnostics[degree]['r2']:.4f}")
             print(f"    Adj R²: {diagnostics[degree]['adj_r2']:.4f}")
+            print(f"    σ(експ): {diagnostics[degree]['sigma_exp']:.2f}, σ(теор): {diagnostics[degree]['sigma_theor']:.2f}")
             
             print("\n    Порівняння порядків полінома:")
-            print(f"    {'m':<4} | {'R²':<8} | {'Adj R²':<8} | {'Δ(σ)':<10}")
-            print("    " + "-"*40)
+            print(f"    {'m':<4} | {'R²':<8} | {'Adj R²':<8} | {'σ(е)':<9} | {'σ(т)':<9} | {'Δ(σ)':<10}")
+            print("    " + "-"*62)
             for m in sorted(diagnostics.keys()):
                 d = diagnostics[m]
                 mark = " ← *" if m == degree else ""
-                print(f"    {m:<4} | {d['r2']:<8.4f} | {d['adj_r2']:<8.4f} | {d['delta']:<10.4f}{mark}")
+                print(f"    {m:<4} | {d['r2']:<8.4f} | {d['adj_r2']:<8.4f} | {d['sigma_exp']:<9.2f} | {d['sigma_theor']:<9.2f} | {d['delta']:<10.2f}{mark}")
         
         elif model_type == 'log':
-            X_log = np.log(self.X[1:] + 1)
+            x_log = np.log(self.X[1:] + 1)
             y_subset = self.y[1:]
-            coeffs = np.polyfit(X_log, y_subset, 1)
+            coeffs = np.polyfit(x_log, y_subset, 1)
             diagnostics = {'type': 'log'}
             print(f"    Коефіцієнти: a={coeffs[0]:.4f}, b={coeffs[1]:.4f}")
             print(f"    Модель: y = {coeffs[0]:.4f}·ln(t) + {coeffs[1]:.4f}")
@@ -309,16 +304,15 @@ class ModelSynthesizer:
             diagnostics = {'type': 'exp'}
             print(f"    Коефіцієнти: A={coeffs[0]:.4f}, k={coeffs[1]:.4f}")
             print(f"    Модель: y = {coeffs[0]:.4f}·exp({coeffs[1]:.4f}·t)")
+                
+        print("\nСИНТЕЗ МОДЕЛІ ЗАВЕРШЕНО")
+        print("="*69)
         
-        print("\n" + "="*60)
-        print("СИНТЕЗ ЗАВЕРШЕНО")
-        print("="*60 + "\n")
         
-        # Автоматичне визначення типу розподілу шуму
-        y_trend, _, _ = self.build_trend(model_type, degree, coeffs)
+        y_trend, _, _ = self.build_trend(model_type, degree, coeffs) # автоматичне визначення типу розподілу шуму
         residuals = self.y - y_trend
         
-        from scipy import stats
+        
         _, p_value = stats.shapiro(residuals)
         
         # Якщо p-value > 0.05, розподіл близький до нормального

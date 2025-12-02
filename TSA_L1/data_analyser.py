@@ -29,9 +29,9 @@ def df_info(df: pd.DataFrame):
 def set_random_seed(seed):
     if seed is not None:
         np.random.seed(seed)
-        print(f"seed: {seed}")
+        print(f"\nseed: {seed}")
     else:
-        print("seed: random")
+        print("\nseed: random")
 
 
 def calculate_residuals(y_actual, y_trend):
