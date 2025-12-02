@@ -107,11 +107,7 @@ def generate_noise(std, size, distribution='normal'):
         noise = np.random.normal(loc=0, scale=std, size=size)
     elif distribution == 'uniform':
         delta = std * np.sqrt(3)
-        noise = np.random.uniform(low=-delta, high=delta, size=size)
-    elif distribution == 'exponential':
-        noise = np.random.exponential(scale=std, size=size)
-        noise = noise - np.mean(noise)
-        
+        noise = np.random.uniform(low=-delta, high=delta, size=size)       
     else:
         raise ValueError(f"Невідомий тип розподілу: {distribution}")
     

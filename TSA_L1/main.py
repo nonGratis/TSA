@@ -65,7 +65,7 @@ def main():
     print("    3 - Експоненціальний")
     noise_choice = input("Номер:").strip()
     
-    noise_map = {'1': 'normal', '2': 'uniform', '3': 'exponential'}
+    noise_map = {'1': 'normal', '2': 'uniform'}
     distribution = noise_map.get(noise_choice, 'normal')
     
     y_synthetic = da.generate_synthetic_data(y_trend, resid_std, distribution)
