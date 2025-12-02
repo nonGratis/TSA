@@ -20,8 +20,12 @@ def plot_report(index, y, y_trend, residuals, y_synthetic, residuals_synthetic, 
             else:
                 terms.append(f'{coef:.2f}t^{power}')
         equation = 'y = ' + ' + '.join(terms).replace('+ -', '- ')
-    else:
+    elif model_type == 'log':
         equation = f'y = {coeffs[0]:.2f}·ln(t) + {coeffs[1]:.2f}'
+    elif model_type == 'exp':
+        equation = f'y = {coeffs[0]:.2f}·exp({coeffs[1]:.2f}·t)'
+    else:
+        equation = 'Невідома модель'
     
     fig, ((ax1, ax4), (ax2, ax5), (ax3, ax6)) = plt.subplots(3, 2, figsize=(10, 12))
     
