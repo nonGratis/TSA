@@ -1,11 +1,14 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
+from data_handler import check_timestamp
 
 def df_info(df: pd.DataFrame):
+    df = check_timestamp(df)
+    
     print(f"Кількість записів: {len(df)}")
     
-    ts = pd.to_datetime(df['timestamp'], format='%d.%m.%Y %H:%M:%S')
+    ts = df['timestamp']
     
     print(f"\nЧасовий діапазон:")
     print(f"    Початок:    {ts.min()}")
@@ -13,10 +16,15 @@ def df_info(df: pd.DataFrame):
     print(f"    Тривалість: {ts.max() - ts.min()}")
     
     print(f"\nСтатистика по r_id:")
-    print(f"    Min:  {df['r_id'].min():.2f}")
-    print(f"    Max:  {df['r_id'].max():.2f}")
-    print(f"    Mean: {df['r_id'].mean():.2f}")
-    print(f"    Std:  {df['r_id'].std():.2f}")
+    r_min = df['r_id'].min()
+    r_max = df['r_id'].max()
+    r_mean = df['r_id'].mean()
+    r_std = df['r_id'].std()
+    
+    print(f"    Min:  {r_min:.2f}" if pd.notna(r_min) else "    Min:  NaN")
+    print(f"    Max:  {r_max:.2f}" if pd.notna(r_max) else "    Max:  NaN")
+    print(f"    Mean: {r_mean:.2f}" if pd.notna(r_mean) else "    Mean: NaN")
+    print(f"    Std:  {r_std:.2f}" if pd.notna(r_std) else "    Std:  NaN")
 
 def set_random_seed(seed):
     if seed is not None:
