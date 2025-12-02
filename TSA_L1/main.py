@@ -70,7 +70,6 @@ def main():
     
     y_synthetic = da.generate_synthetic_data(y_trend, resid_std, distribution)
     residuals_synthetic = da.calculate_residuals(y_trend, y_synthetic)
-    residuals_synthetic_to_reality = da.calculate_residuals(y, y_synthetic)
     
     print(f"\n{'Компонента':<30} | {'M (μ)':<12} | {'D (σ²)':<12} | {'Std (σ)':<12}")
     print("-" * 75)
@@ -80,8 +79,7 @@ def main():
         "Теоретична модель": y_trend,
         "Залишки теоретичної моделі": residuals,
         "Синтетична модель": y_synthetic,
-        "Залишки синтетичної моделі": residuals_synthetic,
-        "Залишки синт. моделі до даних": residuals_synthetic_to_reality
+        "Залишки синтетичної моделі": residuals_synthetic
     }
     for name, data in datasets.items():
         m, v, s = da.calculate_statistics(data)
