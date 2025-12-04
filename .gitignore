@@ -70,8 +70,13 @@ tmp
 *.pdf
 *.xls
 *.xlsx
+*.csv
 
 # Archives
 *.zip
 *.tar.gz
 *.rar
+
+# Tableau
+*.twb
+*.twbx

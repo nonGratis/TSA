@@ -1,0 +1,21 @@
+# Ядро Data Science та числові операції
+pandas
+numpy
+matplotlib
+
+# Парсинг даних (ЛР1)
+requests
+bs4
+
+# Статистичне моделювання, ML та апроксимація (ЛР2, 4, 5, 6)
+statsmodels
+scikit-learn
+scipy
+
+# Рекурентна фільтрація (ЛР2, 3)
+filterpy 
+# Або pykalman (якщо використовується альтернативна реалізація)
+
+# Глибинне навчання (ЛР7)
+tensorflow
+keras

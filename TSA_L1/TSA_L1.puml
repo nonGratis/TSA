@@ -1,0 +1,189 @@
+@startuml TSA_L1
+skinparam backgroundColor white
+skinparam defaultFontName "Times New Roman"
+skinparam shadowing false
+
+!define COLOR_PRIMARY #1323e9
+!define COLOR_SECONDARY #ffaa3a
+!define COLOR_ACCENT #eb5f54
+!define COLOR_BLACK #000000
+
+skinparam activity {
+  BackgroundColor white
+  BorderColor COLOR_BLACK
+  ArrowColor COLOR_BLACK
+  FontName "Times New Roman"
+}
+
+skinparam activityDiamond {
+  BackgroundColor white
+  BorderColor COLOR_SECONDARY
+  FontColor COLOR_BLACK
+}
+
+start
+:<b>main.py</b>;
+:CLI Args
+URL, ""~--seed"", ""~--model"", ""~--degree"", ""~--noise"";
+
+partition "Парсинг та Препроцесинг" {
+  :HTTP GET -> Parse HTML -> CSV;
+  
+  if (Дані завантажені?) then (1)
+    :<color:COLOR_PRIMARY><b>DataFrame</b></color>
+    <math>D_(raw) = { (t_i, r_i) }</math>;
+  else (0)
+    :<color:COLOR_ACCENT><b>Помилка: Немає даних</b></color>;
+    stop
+  endif
+
+  :<color:COLOR_PRIMARY><b>Рівнодискретність</b></color>
+  <math>y_t = x_i, quad t_i = max { tau in mathcal(T)_(raw) | tau <= t }</math>;
+  
+  :<color:COLOR_PRIMARY><b>Z-score фільтрація</b></color>
+  <math>delta_t = |y_t - mu_w|/sigma_w > theta</math>;
+}
+
+partition "Первинний розвідувальний аналіз" {
+  :<color:COLOR_PRIMARY><b>Часові характеристики ряду</b></color>
+  <math>t_(start) = min(mathcal(T))</math>
+  <math>t_(end) = max(mathcal(T))</math>
+  <math>Delta T = t_(end) - t_(start)</math>;
+  
+  :<color:COLOR_PRIMARY><b>Описова статистика значень</b></color>
+  <math>x_(min) = min(D)</math>
+  <math>x_(max) = max(D)</math>
+  <math>mu = 1/n sum_(i=1)^n x_i</math>
+  <math>sigma = sqrt(1/(n-1) sum_(i=1)^n (x_i - mu)^2)</math>;
+}
+
+partition "Синтез математичної моделі" {
+  :<color:COLOR_SECONDARY><b>[1/3] Аналіз характеру тренду</b></color>;
+  :<b>Розрахунок монотонності</b>
+  :<latex>\text{monotonic\_score} = 1 - \frac{\text{sign\_changes}}{n}</latex>;
+  :<b>FFT детекція сезонності</b>
+  <i>max_power > 3·mean_power</i>;
+  
+  :<color:COLOR_SECONDARY><b>[2/3] Вибір класу моделі</b></color>;
+
+  if (args.model is SET?) then (Мануальний)
+    :<color:COLOR_SECONDARY><b>Примусове встановлення типу</b></color>
+    model_type = args.model;
+  else (Автоматичний)
+    if (Seasonality detected?) then (1)
+      :model = poly;
+    elseif (Monotonicity < 0.8) then (1)
+      :model = poly;
+    elseif (Log Test R2 > 0.85) then (1)
+      :model = log;
+    elseif (Exp Test R2 > 0.85) then (1)
+      :model = exp;
+    else
+      :model = poly;    
+    endif
+  endif
+  
+  :<color:COLOR_SECONDARY><b>[3/3] Визначення параметрів</b></color>;
+  
+  switch (model_type?)
+  case (poly)
+    if (args.degree is SET?) then (Мануальний)
+      :<color:COLOR_SECONDARY><b>Примусове встановлення порядку</b></color>
+      poly degree = args.degree;
+    else (Автоматичний)
+      :<latex>\hat{y}(t) = \sum_{j=0}^{m} \beta_j t^{j}</latex>;
+      :<latex>R^{2} = 1 - \dfrac{\sum_{i}(y_i - \hat{y}_i)^2}{\sum_{i}(y_i - \bar{y})^2}</latex>;
+      :<latex>R^{2}_{adj} = 1 - (1 - R^{2})\dfrac{n - 1}{n - p - 1}</latex>;
+      :Порівняння GridSearch m=[1..max_degree]:, R², Adj R², σ(експ), σ(теор), F-stat, p-value;
+      :<color:COLOR_PRIMARY><b>Оптимальний degree</b></color>;
+      :<latex>\min(\Delta\sigma) = \bigl|\sigma_{exp} - \sigma_{theor}\bigr|</latex>;
+      :<latex>\sigma_{exp} = \mathrm{std}(y - \hat{y}),\quad \sigma_{theor} = \sqrt{\mathrm{E}[\xi^{2}]}</latex>;
+    endif
+    :<b>Розрахунок коефіцієнтів полінома</b>;
+    :<latex>\beta_j = \text{polyfit}(X, y, m)</latex>;
+    :<i>coeffs = np.polyfit(self.X, self.y, degree)</i>;
+
+  case (log)
+    :<color:COLOR_PRIMARY><b>Логарифмічна модель</b></color>;
+    :<latex>\hat{y}(t) = \beta_0 \ln(t+1) + \beta_1</latex>;
+    :<i>coeffs = np.polyfit(log(X), y, 1)</i>;
+  case (exp)
+    :<color:COLOR_PRIMARY><b>Експоненційна модель</b></color>;
+    :<latex>\hat{y}(t) = A \cdot e^{kt}</latex>;
+    :<i>coeffs via log transform</i>;
+  endswitch
+  
+  if (args.noise is SET?) then (Мануальний)
+    :<color:COLOR_SECONDARY><b>Примусове встановлення шуму</b></color>
+    distribution = args.noise;
+  else (Автоматичний)
+    :<b>Розподіл шуму</b>\n<i>Shapiro-Wilk test на залишках</i>\n<latex>\text{Shapiro-Wilk: }p\text{-value} = \text{shapiro}(\epsilon)</latex>;
+    switch (p-value?)
+    case ( > 0.05 )
+      :distribution = normal;
+    case ( <= 0.05 )
+      :distribution = uniform;
+    endswitch
+  endif
+
+  :<b>Розрахунок залишків теоретичної моделі</b>;
+  :<latex>\epsilon = y - \hat{y}</latex>;
+}
+  
+
+
+partition "Стохастичний синтез" {
+  :<b>generate_synthetic_data(y_trend, residuals, distribution)</b>;
+  :<color:COLOR_PRIMARY><b>Обчислення σ залишків</b></color>;
+  :<latex>\sigma = \text{std}(residuals)</latex>;
+  
+  switch (distribution?)
+  case (normal)
+    :<color:COLOR_SECONDARY><b>Генерація нормального шуму</b></color>;
+    :<latex>\xi \sim \mathcal{N}(0, \sigma)</latex>;
+    :<i>np.random.normal(loc=0, scale=σ, size=n)</i>;
+  case (uniform)
+    :<color:COLOR_SECONDARY><b>Генерація рівномірного шуму</b></color>;
+    :<latex>\xi \sim \mathcal{U}(-\Delta, \Delta), \quad \Delta = \sigma\sqrt{3}</latex>;
+    :<i>np.random.uniform(low=-Δ, high=Δ, size=n)</i>;
+  endswitch
+  
+  :<color:COLOR_PRIMARY><b>Синтез ряду</b></color>;
+  :<latex>y_{synth}(t) = \hat{y}(t) + \xi(t)</latex>;
+  :<i>y_synthetic = y_trend + noise</i>;
+}
+
+:<b>Розрахунок залишків синтетичної моделі</b>;
+:<latex>\epsilon_{synth} = y_{synth} - \hat{y}</latex>;
+:<i>residuals_synthetic = calculate_residuals(y_synthetic, y_trend)</i>;
+
+partition "Верифікація та звітність" {
+  :<b>print_statistics_report()</b>
+  • Коефіцієнти моделі
+  • Тест Шапіро-Вілка (p-value)
+  • Тип розподілу шуму;
+  
+  :<b>Таблиця статистики</b>
+  <latex>M(\mu), D(\sigma^{2}), \mathrm{Std}(\sigma)</latex>
+  ----
+  * Експериментальні дані
+  * Теоретична модель
+  * Залишки (Теор. і Синт.)
+  * Синтетична модель;
+  
+  :<b>Тест Колмогорова-Смірнова</b>
+  <i>Порівняння розподілів residuals та residuals_synthetic</i>;
+  
+  :<b>plot_report()</b>
+  Візуалізація 6 графіків:
+  • Апроксимація процесу
+  • Залишки теоретичної моделі (stem)
+  • Гістограма + PDF overlay (теоретичні)
+  • Порівняння фактичних та синтезованих
+  • Залишки синтезованої моделі (stem)
+  • Гістограма + PDF overlay (синтетичні);
+}
+
+stop
+
+@enduml
