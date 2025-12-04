@@ -60,13 +60,13 @@ def print_statistics_report(y, y_trend, y_synthetic, residuals, residuals_synthe
     - Таблиця статистики для всіх компонентів
     - Тест Колмогорова-Смірнова
     """
-    print(f"\nКоєфіцієнти моделі (старший-молодший): {coeffs}")
-    
-    
-    print(f"Тип розподілу шуму: {distribution}")
-    
+    print(f"Коєфіцієнти моделі (старший-молодший): {coeffs}")
+        
     p_value = check_normality(residuals)
-    print(f"\nТест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4e}")
+    print(f"Тест нормальності (Шапіро-Вілка) залишків теоретичної моделі, p-value: {p_value:.4e}")
+    print("Тест Колмогорова-Смірнова (порівняння розподілів реального та синтетичного шумів):")
+    ks_stat, ks_p_value = compare_distributions_ks(residuals, residuals_synthetic)
+    print(f"Statistic: {ks_stat:.4f}, p-value: {ks_p_value:.4f}")
     
     print(f"\n{'Компонента':<30} | {'M (μ)':<12} | {'D (σ²)':<12} | {'Std (σ)':<12}")
     print("-" * 75)
@@ -83,6 +83,3 @@ def print_statistics_report(y, y_trend, y_synthetic, residuals, residuals_synthe
         print(f"{name:<30} | {m:<12.2f} | {v:<12.2f} | {s:<12.2f}")
     print("-" * 75)
     
-    ks_stat, ks_p_value = compare_distributions_ks(residuals, residuals_synthetic)
-    print("\nТест Колмогорова-Смірнова (порівняння розподілів реального та синтетичного шумів):")
-    print(f"Statistic: {ks_stat:.4f}, p-value: {ks_p_value:.4f}")

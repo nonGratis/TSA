@@ -65,4 +65,4 @@ def _save_data(df):
     filepath = data_dir / f'{timestamp}.csv'
     
     df.to_csv(filepath, index=False)
-    print(f"Дані збережено: {filepath}")
+    print(f"Дані збережено")

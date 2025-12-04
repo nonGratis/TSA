@@ -254,20 +254,18 @@ class ModelSynthesizer:
                 'recommended_distribution': str
             }
         """
-        print("="*69)
-        print("СИНТЕЗ МАТЕМАТИЧНОЇ МОДЕЛІ")
-        
-        print("\n[1/3] Аналіз характеру тренду...")
+       
+        print("[1/3] Аналіз характеру тренду...")
         trend_info = self.analyze_trend_type()
         print(f"    Тип тренду: {trend_info['type']}")
         print(f"    Монотонність: {trend_info['monotonic_score']:.2f}")
         print(f"    Сезонність: {'Так' if trend_info['seasonality_detected'] else 'Ні'}")
         
-        print("\n[2/3] Вибір класу математичної моделі...")
+        print("[2/3] Вибір класу математичної моделі...")
         model_type = self.select_model_class(trend_info)
         print(f"    Обрано: {model_type}")
         
-        print("\n[3/3] Визначення оптимальних параметрів...")
+        print("[3/3] Визначення оптимальних параметрів...")
         
         degree = None
         coeffs = np.array([])
@@ -305,10 +303,6 @@ class ModelSynthesizer:
             print(f"    Коефіцієнти: A={coeffs[0]:.4f}, k={coeffs[1]:.4f}")
             print(f"    Модель: y = {coeffs[0]:.4f}·exp({coeffs[1]:.4f}·t)")
                 
-        print("\nСИНТЕЗ МОДЕЛІ ЗАВЕРШЕНО")
-        print("="*69)
-        
-        
         y_trend, _, _ = self.build_trend(model_type, degree, coeffs) # автоматичне визначення типу розподілу шуму
         residuals = self.y - y_trend
         
