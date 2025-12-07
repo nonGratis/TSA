@@ -80,3 +80,8 @@ tmp
 # Tableau
 *.twb
 *.twbx
+
+# Exta folders
+data/*
+ex/*
+codefetch/*
