@@ -1,6 +1,5 @@
-@startuml
+@startuml TSA_L2
 
-' == НАЛАШТУВАННЯ ВИГЛЯДУ (ACADEMIC STYLE) ==
 skinparam defaultFontName "Serif"
 skinparam shadowing false
 skinparam linetype ortho
@@ -22,8 +21,6 @@ skinparam note {
 skinparam arrow {
   Color black
 }
-
-title "Алгоритм моделювання та аналізу кумулятивних часових рядів (TSA Flow)"
 
 start
 
