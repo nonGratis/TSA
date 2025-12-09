@@ -9,16 +9,16 @@ def check_timestamp(df: pd.DataFrame, col: str = 'timestamp', fmt: str = '%d.%m.
         df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
     bad = df[col].isna().sum()
     if bad:
-        print(f"Warning: {bad} rows have invalid '{col}' and will be dropped")
+        print(f"Попередження: {bad} рядків мають невірний '{col}' і будуть видалені")
         df = df.dropna(subset=[col])
     return df
 
-def _detect_anomalies_series(s: pd.Series, window: int = 24, z: float = 3.0) -> pd.Series:
-    """±z*std rolling detector (centered)"""
-    mean = s.rolling(window=window, min_periods=1, center=True).mean()
-    sd = s.rolling(window=window, min_periods=1, center=True).std(ddof=0).fillna(0.0)
-    mask = (s - mean).abs() > (z * sd)
-    return mask.fillna(False)
+def _detect_anomalies_cumulative(s: pd.Series) -> pd.Series:
+    """Виявляємож тільки падіння лічильника (аналогічно до diff() < 0)"""
+    diffs = s.diff().fillna(0.0).astype(float)
+    mask_drop: pd.Series = diffs < -1e-6
+    
+    return mask_drop
 
 def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -30,25 +30,27 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     df = check_timestamp(df)
     df = df.set_index('timestamp').sort_index()
 
-    col: Optional[pd.Series] = df.get('r_id')
+    col = df.get('r_id')
     if col is None:
-        df['r_id'] = pd.Series(index=df.index, dtype=float)
+        df['r_id'] = np.nan
     else:
         df['r_id'] = pd.to_numeric(col, errors='coerce')
 
     df = df.dropna(subset=['r_id'])
-    s = df['r_id'].resample('1h').last()
+    s_resampled = df['r_id'].resample('1h').last()
+    imputed_mask = s_resampled.isna()
 
-    imputed = s.isna()
+    # ffill значення не змінювалося
+    s_filled = s_resampled.ffill()
+    
+    anomaly_mask = _detect_anomalies_cumulative(s_filled)
 
-    # r_id істотно кумулятивний лічильник)
-    s = s.ffill()
+    if anomaly_mask.any():
+        s_filled.loc[anomaly_mask] = np.nan
+        s_filled = s_filled.ffill()
+        imputed_mask = imputed_mask | anomaly_mask
 
-    mask = _detect_anomalies_series(s)
-    if mask.any():
-        s.loc[mask] = np.nan
-        s = s.ffill()
-        imputed = imputed | mask.fillna(False)
-
-    df_resampled = pd.DataFrame({'r_id': s, 'imputed': imputed.astype(bool)})
-    return df_resampled
+    return pd.DataFrame({
+        'r_id': s_filled,
+        'imputed': imputed_mask.astype(bool)
+    })
