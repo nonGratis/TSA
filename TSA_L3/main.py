@@ -26,12 +26,6 @@ def main():
     
     parser.add_argument('--k-steps', type=int, default=12)
     parser.add_argument('--imputed-mode', dest='imputed_update_mode', type=str, default='skip')
-    
-    parser.add_argument('--robust', action='store_true', default=True)
-    parser.add_argument('--window', type=int, default=12)
-    parser.add_argument('--q-min', type=float, default=0)
-    parser.add_argument('--q-max', type=float, default=0)
-    parser.add_argument('--adapt-rate', type=float, default=0)
 
     args = parser.parse_args()
     
