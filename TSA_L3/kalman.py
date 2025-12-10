@@ -2,110 +2,113 @@ import numpy as np
 from typing import Optional, Tuple
 
 def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
-    """Оцінка Q та R методом дисперсій різниць (без змін)."""
-    if len(y) < 2:
-        return 1.0, 1.0
+    """
+    Robust Noise Estimation using IQR or nanvar to avoid outliers/NaNs.
+    """
+    # 1. Clean NaNs and Infs
+    y_clean = y[np.isfinite(y)]
+    
+    if len(y_clean) < 5:
+        return 1.0, 10.0
 
-    diffs = np.diff(y)
-    measurement_noise = float(np.var(diffs, ddof=1)) # R
+    # 2. First differences (Velocity approx)
+    diffs = np.diff(y_clean)
+    
+    # 3. Robust Variance Estimation (using IQR to ignore outliers)
+    # R approx = Variance of velocity (jitter)
+    # Q approx = Variance of acceleration (jerk)
+    
+    def robust_var(data):
+        if len(data) < 2: return 1.0
+        q75, q25 = np.percentile(data, [75 ,25])
+        iqr = q75 - q25
+        if iqr > 0:
+            # Sigma approx = IQR / 1.35
+            return (iqr / 1.35) ** 2
+        else:
+            return np.var(data) # Fallback to standard var
 
-    if len(y) >= 3:
+    measurement_noise = float(robust_var(diffs)) # R
+
+    if len(y_clean) >= 5:
         second_diffs = np.diff(diffs)
-        process_noise = float(np.var(second_diffs, ddof=1)) # Q
+        process_noise = float(robust_var(second_diffs)) # Q
     else:
         process_noise = measurement_noise / 10.0
 
-    return max(process_noise, 1e-6), max(measurement_noise, 1e-6)
+    # Sanity bounds (щоб не було 0 або nan)
+    process_noise = max(process_noise, 1e-3)
+    measurement_noise = max(measurement_noise, 1e-2)
+
+    return process_noise, measurement_noise
 
 
 class AlphaBetaFilter:
     """
-    Реалізація фільтра Калмана у матричному вигляді.
-    Забезпечує точний розрахунок коваріації інновації (S) для NIS-аналізу.
-    
-    Зберігає інтерфейс AlphaBetaFilter для сумісності, але всередині працює 
-    як повноцінний Kalman Filter.
+    Матричний фільтр Калмана (CV/CA model).
     """
     def __init__(
         self,
         dt: float = 1.0,
         state_dim: int = 2,
-        process_noise_q: float = 1.0, # Це спектральна щільність шуму (scalar scaling factor)
+        process_noise_q: float = 1.0, 
         measurement_noise_r: float = 1.0,
         init_state: Optional[np.ndarray] = None,
-        alpha: Optional[float] = None # Deprecated в матричному режимі, ігнорується
+        alpha: Optional[float] = None 
     ):
         if state_dim not in [2, 3]:
             raise ValueError("state_dim must be 2 or 3")
         
-        self.dt = dt
+        self.dt = float(dt)
         self.state_dim = state_dim
         
-        # 1. State Vector [x, v, (a)]
+        # Init State
         self.x_state = np.zeros((state_dim, 1))
         if init_state is not None:
-            self.x_state[0, 0] = float(init_state[0])
-            if len(init_state) > 1: self.x_state[1, 0] = float(init_state[1])
-            if len(init_state) > 2 and state_dim == 3: self.x_state[2, 0] = float(init_state[2])
+            safe_init = np.nan_to_num(init_state, nan=0.0)
+            for i in range(min(len(safe_init), state_dim)):
+                self.x_state[i, 0] = float(safe_init[i])
 
-        # 2. Matrices definition
-        # Transition Matrix (A)
-        if state_dim == 2:
-            self.A = np.array([
-                [1.0, dt],
-                [0.0, 1.0]
-            ])
-            # Measurement Matrix (H) - we measure position only
+        # Matrices
+        if state_dim == 2: # Constant Velocity
+            self.A = np.array([[1.0, dt], [0.0, 1.0]])
             self.H = np.array([[1.0, 0.0]])
-        else:
-            self.A = np.array([
-                [1.0, dt, 0.5*dt**2],
-                [0.0, 1.0, dt],
-                [0.0, 0.0, 1.0]
-            ])
+        else: # Constant Acceleration
+            self.A = np.array([[1.0, dt, 0.5*dt**2], [0.0, 1.0, dt], [0.0, 0.0, 1.0]])
             self.H = np.array([[1.0, 0.0, 0.0]])
 
-        # Identity Matrix
         self.I = np.eye(state_dim)
-
-        # 3. Covariance Initialization (P)
-        # Початкова невизначеність. Якщо невідомо, ставимо велику.
-        self.P = np.eye(state_dim) * 100.0 
         
-        # 4. Noise Matrices Initialization
-        # Зберігаємо скалярні фактори для оновлень
-        self.q_scalar = process_noise_q
-        self.r_scalar = measurement_noise_r
+        # Initial Uncertainty
+        self.P = np.eye(state_dim) * 1000.0 
         
-        self.Q_mat = np.eye(state_dim) # Placeholder, буде оновлено в update_noise_matrices
-        self.R_mat = np.array([[measurement_noise_r]])
+        # Noise
+        self.q_scalar = float(process_noise_q) if np.isfinite(process_noise_q) else 1.0
+        self.r_scalar = float(measurement_noise_r) if np.isfinite(measurement_noise_r) else 10.0
         
-        self.update_noise_matrices(process_noise_q, measurement_noise_r)
+        self.Q_mat = np.eye(state_dim)
+        self.R_mat = np.array([[self.r_scalar]])
         
-        # Public properties for access
-        self.alpha = 0.0 # Will be synced with K[0]
-        self.beta = 0.0
-        self.S = 0.0 # Innovation covariance storage
+        self.update_noise_matrices(self.q_scalar, self.r_scalar)
+        
+        self.alpha = 0.0 
+        self.S = 0.0 
 
     def update_noise_matrices(self, q: float, r: float) -> None:
-        """Оновлення матриць шуму Q та R."""
-        self.q_scalar = q
-        self.r_scalar = max(r, 1e-9)
-        self.R_mat[0, 0] = self.r_scalar
+        q = float(q) if np.isfinite(q) and q > 0 else 1e-6
+        r = float(r) if np.isfinite(r) and r > 0 else 1e-6
         
-        # Формування матриці Q (Discrete White Noise Acceleration Model)
-        # Q = q * [terms based on dt]
+        self.q_scalar = q
+        self.r_scalar = r
+        self.R_mat[0, 0] = r
+        
+        dt = self.dt
         if self.state_dim == 2:
-            # Piecewise Constant White Acceleration approx for dim 2
             self.Q_mat = q * np.array([
-                [0.25 * self.dt**4, 0.5 * self.dt**3],
-                [0.5 * self.dt**3,      self.dt**2]
+                [0.25 * dt**4, 0.5 * dt**3],
+                [0.5 * dt**3,      dt**2]
             ])
-            # Альтернатива (спрощена, яку часто використовують):
-            # self.Q_mat = q * np.array([[self.dt**3/3, self.dt**2/2], [self.dt**2/2, self.dt]])
         else:
-            # Для dim=3 (Jerk as noise)
-            dt = self.dt
             self.Q_mat = q * np.array([
                 [dt**5/20, dt**4/8, dt**3/6],
                 [dt**4/8,  dt**3/3, dt**2/2],
@@ -113,97 +116,70 @@ class AlphaBetaFilter:
             ])
 
     def update_params_from_noise(self, q: float, r: float) -> None:
-        """Аліас для сумісності з пайплайном."""
         self.update_noise_matrices(q, r)
 
     def set_alpha(self, alpha: float) -> None:
-        """
-        [DEPRECATED] У матричному фільтрі Alpha вираховується автоматично через K.
-        Цей метод залишено, щоб код не падав, але він не має ефекту на матрицю P.
-        """
-        pass
+        pass # Not used in Matrix KF directly
 
     def predict(self) -> float:
-        # 1. State Extrapolation: x = A * x
         self.x_state = self.A @ self.x_state
-        
-        # 2. Covariance Extrapolation: P = A * P * A.T + Q
         self.P = self.A @ self.P @ self.A.T + self.Q_mat
-        
         return float(self.x_state[0, 0])
 
     def update(self, measurement: float, r_override: Optional[float] = None) -> float:
-        """
-        Крок оновлення (Update/Correction).
-        
-        Args:
-            measurement: Виміряне значення.
-            r_override: Опціонально - тимчасове значення R для цього кроку (для weighted update).
-        """
-        # Використовуємо тимчасовий R, якщо задано, інакше стандартний
+        if not np.isfinite(measurement):
+            return float(self.x_state[0, 0])
+
         R_curr = np.array([[r_override]]) if r_override is not None else self.R_mat
 
-        # 1. Innovation (Residual): y = z - H * x
+        # Innovation
         z = np.array([[measurement]])
         y = z - self.H @ self.x_state
         
-        # 2. Innovation Covariance: S = H * P * H.T + R
-        # Це єдиний математично коректний спосіб отримати S для NIS
+        # S = H P H' + R
         S_mat = self.H @ self.P @ self.H.T + R_curr
         self.S = float(S_mat[0, 0])
         
-        # 3. Kalman Gain: K = P * H.T * S^-1
+        # K = P H' S^-1
         K = self.P @ self.H.T / (self.S + 1e-12)
         
-        # 4. State Update: x = x + K * y
+        # x = x + K y
         self.x_state = self.x_state + K @ y
         
-        # 5. Covariance Update: P = (I - K * H) * P
-        # Joseph form is more stable: P = (I-KH)P(I-KH)' + KRK', but simple form is usually enough here
+        # P = (I - K H) P
         self.P = (self.I - K @ self.H) @ self.P
         
-        # Sync simple properties
         self.alpha = float(K[0, 0])
-        if self.state_dim >= 2:
-            self.beta = float(K[1, 0]) * self.dt # Нормалізація beta до dt
-        
         return float(self.x_state[0, 0])
 
     def get_residual(self, measurement: float) -> float:
-        """Повертає інновацію (y) без оновлення стану."""
+        if not np.isfinite(measurement): return 0.0
         z = np.array([[measurement]])
         y = z - self.H @ self.x_state
         return float(y[0, 0])
 
     def get_innovation_variance(self) -> float:
-        """Повертає останнє розраховане (або передбачене) S."""
-        # Якщо ми викликаємо це ДО update(), нам треба розрахувати S на основі P_pred
         S_mat = self.H @ self.P @ self.H.T + self.R_mat
         return float(S_mat[0, 0])
     
-    # Гетери для сумісності
     def get_position(self) -> float: return float(self.x_state[0, 0])
     def get_velocity(self) -> float: return float(self.x_state[1, 0])
     def get_acceleration(self) -> float: 
         return float(self.x_state[2, 0]) if self.state_dim == 3 else 0.0
 
     def get_position_variance(self) -> float:
-        """Повертає P[0,0] - дисперсію позиції."""
         return float(self.P[0, 0])
     
     # Властивості Q/R для пайплайну
     @property
     def Q(self) -> float: return self.q_scalar
-    
     @property
     def R(self) -> float: return self.r_scalar
 
     def predict_k_steps(self, k: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Прогноз з використанням матриць."""
         preds = np.zeros(k)
         vars_pred = np.zeros(k)
         
-        # Копіюємо стан для симуляції
         x_curr = self.x_state.copy()
         P_curr = self.P.copy()
         
