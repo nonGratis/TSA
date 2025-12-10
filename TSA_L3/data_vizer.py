@@ -55,7 +55,7 @@ def plot_kalman_results(
         k = len(preds)
         t_future = np.arange(len(df), len(df) + k)
 
-        ax.plot(t_future, preds, '--', color=COLOR_ACCENT,
+        ax.plot(t_future, preds, '--', color=COLOR_PRIMARY,
                 linewidth=2, label=f'Прогноз {k} кроків', alpha=0.8, zorder=2)
         ax.axvline(x=len(df) - 1, color=COLOR_GRAY, linestyle=':', linewidth=1.5, alpha=0.7)
 
@@ -67,7 +67,7 @@ def plot_kalman_results(
             ci = 1.96 * stds
             upper = preds + ci
             lower = preds - ci
-            ax.fill_between(t_future, lower, upper, color=COLOR_ACCENT, alpha=0.15,
+            ax.fill_between(t_future, lower, upper, color=COLOR_PRIMARY, alpha=0.15,
                             label='95% CI прогнозу', zorder=1, clip_on=True)
             ax.set_ylim(orig_ylim)
 
@@ -90,95 +90,74 @@ def plot_residuals_analysis(
     title: str = "Аналіз залишків",
     save_path: Optional[str] = None
 ) -> None:
-    has_q = 'q_value' in df.columns
+    has_alpha = 'alpha' in df.columns
+    has_q = 'process_q' in df.columns
     has_nis = 'nis' in df.columns
-    has_nees = 'nees_pos' in df.columns
 
-    # якщо є ніч/nees — використовуємо подвійний subplot, інакше один
-    if has_q or has_nis or has_nees:
+    # Якщо є адаптивні параметри, малюємо 2 графіки
+    if has_alpha or has_q or has_nis:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10),
-                                       gridspec_kw={'height_ratios': [2, 1]})
+                                      gridspec_kw={'height_ratios': [2, 1]})
     else:
         fig, ax1 = plt.subplots(1, 1, figsize=(14, 6))
 
     t = np.arange(len(df))
     residuals = np.asarray(df['residual'].values, dtype=float)
 
-    # Графік залишків
-    ax1.scatter(t, residuals, color=COLOR_PRIMARY, s=20, alpha=0.6,
-               label='Залишки')
+    # --- Графік 1: Залишки ---
+    ax1.scatter(t, residuals, color=COLOR_PRIMARY, s=20, alpha=0.6, label='Залишки')
     ax1.axhline(y=0, color=COLOR_BLACK, linestyle='--', linewidth=1.5)
 
-    # Ковзна дисперсія (вікно 24 години)
     window = 24
     if len(residuals) > window:
+        # Ігноруємо NaN при розрахунку
         rolling_var = pd.Series(residuals).rolling(window=window, center=True).var()
         rolling_std = np.sqrt(rolling_var)
 
-        # Довірчі межі ±2σ
         ax1_twin = ax1.twinx()
         ax1_twin.plot(t, rolling_std, color=COLOR_ACCENT, linewidth=2,
-                     alpha=0.7, label=f'Ковзна σ (вікно={window})')
+                      alpha=0.7, label=f'Ковзна σ (вікно={window})')
         ax1_twin.fill_between(t, -2*rolling_std, 2*rolling_std,
                               color=COLOR_ACCENT, alpha=0.1)
         ax1_twin.set_ylabel('Ковзна σ', fontsize=11, color=COLOR_ACCENT)
         ax1_twin.legend(fontsize=9, loc='upper right')
 
     ax1.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Залишок (measurement - prediction)', fontsize=12,
-                  fontweight='bold')
+    ax1.set_ylabel('Залишок (Residual)', fontsize=12, fontweight='bold')
     ax1.set_title(title, fontsize=14, fontweight='bold')
     ax1.legend(fontsize=10, loc='upper left')
     ax1.grid(True, alpha=0.3)
 
-    # Другий графік: Q або NIS/NEES
-    if has_q or has_nis or has_nees:
-        if has_q and not (has_nis or has_nees):
-            q_values = np.asarray(df['q_value'].values, dtype=float)
-            ax2.plot(t, q_values, color=COLOR_SECONDARY, linewidth=2)
-            ax2.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('Q (процесний шум)', fontsize=12, fontweight='bold')
-            ax2.set_title('Адаптація процесного шуму Q', fontsize=12,
-                         fontweight='bold')
-            ax2.grid(True, alpha=0.3)
+    # --- Графік 2: Адаптивні параметри (Alpha або NIS) ---
+    if has_alpha or has_q or has_nis:
+        if has_alpha:
+            alpha_vals = np.asarray(df['alpha'].values, dtype=float)
+            ax2.plot(t, alpha_vals, color=COLOR_SECONDARY, linewidth=2, label='Alpha (Gain)')
+            ax2.set_ylabel('Alpha', fontsize=12, fontweight='bold', color=COLOR_SECONDARY)
+            ax2.set_ylim(0, 1.05)
+            
+            # Якщо є ще й Q, покажемо на осі Y2
+            if has_q:
+                q_vals = np.asarray(df['process_q'].values, dtype=float)
+                ax2_twin = ax2.twinx()
+                ax2_twin.plot(t, q_vals, color=COLOR_GRAY, linewidth=1, linestyle='--', alpha=0.5, label='Process Q')
+                ax2_twin.set_yscale('log')
+                ax2_twin.set_ylabel('Process Noise Q (log)', fontsize=10, color=COLOR_GRAY)
+        
+        elif has_nis:
+            # Якщо Alpha стабільна, але є NIS - малюємо NIS
+            nis_vals = np.asarray(df['nis'].values, dtype=float)
+            ax2.plot(t, nis_vals, color=COLOR_PRIMARY, linewidth=1.5, label='NIS')
+            
+            upper = chi2.ppf(0.975, df=1)
+            ax2.axhline(y=upper, color=COLOR_ACCENT, linestyle='--', label='95% межа')
+            ax2.set_ylabel('NIS', fontsize=12, fontweight='bold')
             ax2.set_yscale('log')
-        else:
-            # малюємо NIS та NEES (якщо є)
-            plotted = False
-            if has_nis:
-                nis_vals = np.asarray(df['nis'].values, dtype=float)
-                idx = ~np.isnan(nis_vals)
-                if idx.any():
-                    ax2.plot(t[idx], nis_vals[idx], color=COLOR_SECONDARY, linewidth=1.5,
-                             label='NIS (інновації)', alpha=0.9)
-                    plotted = True
-                # chi2 bounds для dof=1
 
-                lower = chi2.ppf(0.025, df=1)
-                upper = chi2.ppf(0.975, df=1)
-
-                ax2.axhline(y=upper, color=COLOR_ACCENT, linestyle='--', linewidth=1.5,
-                            label='χ²(1) 97.5%')
-                ax2.axhline(y=lower, color=COLOR_ACCENT, linestyle=':', linewidth=1.0,
-                            label='χ²(1) 2.5%')
-
-            if has_nees:
-                nees_vals = np.asarray(df['nees_pos'].values, dtype=float)
-                idx2 = ~np.isnan(nees_vals)
-                if idx2.any():
-                    ax2.plot(t[idx2], nees_vals[idx2], color=COLOR_PRIMARY, linewidth=1.5,
-                             label='NEES (position, approx.)', alpha=0.9)
-                    plotted = True
-
-            if not plotted:
-                ax2.text(0.02, 0.5, 'Немає достатніх NIS/NEES для відображення', transform=ax2.transAxes)
-
-            ax2.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('NIS / NEES', fontsize=12, fontweight='bold')
-            ax2.set_title('Стандартизовані інновації (NIS) та NEES (approx)', fontsize=12,
-                          fontweight='bold')
-            ax2.grid(True, alpha=0.3)
-            ax2.legend(fontsize=9, loc='upper left')
+        ax2.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
+        ax2.set_title('Параметри адаптації фільтра', fontsize=12, fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+        ax2.legend(loc='upper left')
 
     plt.tight_layout()
 
@@ -198,17 +177,20 @@ def plot_acf_histogram(
 ) -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Гістограма залишків
-    ax1.hist(residuals, bins=30, color=COLOR_PRIMARY, alpha=0.7,
-            edgecolor=COLOR_BLACK, density=True)
+    # Remove NaNs
+    valid_res = residuals[~np.isnan(residuals)]
+
+    # Гістограма
+    ax1.hist(valid_res, bins=30, color=COLOR_PRIMARY, alpha=0.7,
+             edgecolor=COLOR_BLACK, density=True)
     ax1.axvline(x=0, color=COLOR_ACCENT, linestyle='--', linewidth=2)
 
-    # Додаємо нормальний розподіл для порівняння
-    mu, sigma = np.mean(residuals), np.std(residuals)
-    x = np.linspace(residuals.min(), residuals.max(), 100)
-    normal_dist = (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
-    ax1.plot(x, normal_dist, color=COLOR_ACCENT, linewidth=2,
-            label=f'N({mu:.2f}, {sigma:.2f}²)')
+    if len(valid_res) > 1:
+        mu, sigma = np.mean(valid_res), np.std(valid_res)
+        x = np.linspace(valid_res.min(), valid_res.max(), 100)
+        normal_dist = (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+        ax1.plot(x, normal_dist, color=COLOR_ACCENT, linewidth=2,
+                 label=f'N({mu:.2f}, {sigma:.2f}²)')
 
     ax1.set_xlabel('Значення залишку', fontsize=11, fontweight='bold')
     ax1.set_ylabel('Щільність', fontsize=11, fontweight='bold')
@@ -216,28 +198,19 @@ def plot_acf_histogram(
     ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.3, axis='y')
 
-    # Статистика
-    textstr = f'μ = {mu:.4f}\nσ = {sigma:.4f}\nN = {len(residuals)}'
-    ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=10,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-
-    # ACF графік
+    # ACF
     lags = np.arange(len(acf_values))
-    ax2.stem(lags, acf_values, linefmt=COLOR_PRIMARY, markerfmt='o',
-            basefmt=COLOR_BLACK)
+    ax2.stem(lags, acf_values, linefmt=COLOR_PRIMARY, markerfmt='o', basefmt=COLOR_BLACK)
 
-    # Довірчі межі
     ax2.axhline(y=confidence_bound, color=COLOR_ACCENT, linestyle='--',
-               linewidth=1.5, alpha=0.7, label=f'±{confidence_bound:.3f} (95%)')
+                linewidth=1.5, alpha=0.7, label=f'±{confidence_bound:.3f} (95%)')
     ax2.axhline(y=-confidence_bound, color=COLOR_ACCENT, linestyle='--',
-               linewidth=1.5, alpha=0.7)
+                linewidth=1.5, alpha=0.7)
     ax2.axhline(y=0, color=COLOR_BLACK, linewidth=1)
 
     ax2.set_xlabel('Лаг', fontsize=11, fontweight='bold')
     ax2.set_ylabel('ACF', fontsize=11, fontweight='bold')
-    ax2.set_title('Автокореляційна функція (ACF)', fontsize=12,
-                 fontweight='bold')
+    ax2.set_title('Автокореляційна функція (ACF)', fontsize=12, fontweight='bold')
     ax2.legend(fontsize=10)
     ax2.grid(True, alpha=0.3)
     ax2.set_ylim(-1, 1)
@@ -265,11 +238,10 @@ def plot_velocity_analysis(
     ax.plot(t, velocity, color=COLOR_PRIMARY, linewidth=2)
     ax.axhline(y=0, color=COLOR_BLACK, linestyle='--', linewidth=1.5)
 
-    # Статистика швидкості
     mean_v = float(np.mean(velocity))
     std_v = float(np.std(velocity))
     ax.axhline(y=mean_v, color=COLOR_ACCENT, linestyle=':', linewidth=2,
-              alpha=0.7, label=f'Середня швидкість: {mean_v:.2f}')
+               alpha=0.7, label=f'Середня швидкість: {mean_v:.2f}')
     ax.fill_between(t, mean_v - std_v, mean_v + std_v,
                     color=COLOR_ACCENT, alpha=0.1,
                     label=f'±1σ ({std_v:.2f})')
