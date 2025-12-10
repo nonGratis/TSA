@@ -91,11 +91,10 @@ def main():
     images_dir.mkdir(exist_ok=True)
     
     dv.plot_kalman_results(df_res, (preds, vars_pred), 
-                        title="Kalman Filter Results (Alpha/NIS)",
+                        title="Результати фільтра Калмана (Alpha/NIS)",
                         save_path=str(images_dir / '01_kf_results.svg'))
     
-    dv.plot_residuals_analysis(df_res, title="Residuals & Adaptation Analysis",
-                            save_path=str(images_dir / '02_kf_diagnostics.svg'))
-
+    dv.plot_residuals_analysis(df_res, title="Аналіз залишків та адаптації",
+                            save_path=str(images_dir / '02_kf_diagnostics.svg'))                    
 if __name__ == "__main__":
     main()

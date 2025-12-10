@@ -20,9 +20,8 @@ def plot_kalman_results(
     fig, ax = plt.subplots(figsize=(14, 7))
     t = np.arange(len(df))
 
-    # Сирі дані
     ax.plot(t, df['r_id_raw'], 'o', color=COLOR_GRAY, markersize=3,
-            alpha=0.5, label='Сирі дані', zorder=1)
+            alpha=0.5, label='Дані', zorder=1)
 
     # Імпутовані точки
     imputed_idx = df['is_imputed'].astype(bool).values
@@ -72,7 +71,7 @@ def plot_kalman_results(
             ax.set_ylim(orig_ylim)
 
     ax.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Накопичувальний лічильник (r_id)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Накопичувальний лічильник', fontsize=12, fontweight='bold')
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(fontsize=10, loc='best')
     ax.grid(True, alpha=0.3)
