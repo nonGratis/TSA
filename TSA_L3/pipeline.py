@@ -22,15 +22,18 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     
     # --- Етап 2: Ініціалізація ---
     print("[2/4] Ініціалізація фільтра...")
-    state_dim = config.get('state_dim', 2)
-    dt = config.get('dt', 1.0)
+    state_dim = int(config.get('state_dim', 2))
+    dt = float(config.get('dt', 1.0))
     
     # Оцінка шумів для розрахунку базових alpha/beta
     proc_noise, meas_noise = estimate_noise_parameters(r_id_input)
     
     # Оверрайд шумів з конфігу (якщо задано)
-    Q = config.get('process_noise') if config.get('process_noise') else proc_noise
-    R = config.get('measurement_noise') if config.get('measurement_noise') else meas_noise
+    cfg_q = config.get('process_noise')
+    cfg_r = config.get('measurement_noise')
+    
+    Q = float(cfg_q) if cfg_q is not None else float(proc_noise)
+    R = float(cfg_r) if cfg_r is not None else float(meas_noise)
     
     print(f"  state_dim: {state_dim}, dt: {dt}")
     print(f"  Ref Q: {Q:.2e}, Ref R: {R:.2e}")
@@ -113,7 +116,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         if should_update:
             # Адаптація перед оновленням (лише на реальних даних або якщо дозволено)
             if use_adaptive and adapter:
-                new_alpha = adapter.update(current_residual, R)
+                new_alpha = adapter.update(float(current_residual), R)
                 ab_filter.set_alpha(new_alpha)
             
             ab_filter.update(measurement)
@@ -125,7 +128,8 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         kf_p_var[i] = ab_filter.get_position_variance()
         alpha_vals[i] = ab_filter.alpha
         
-        if state_dim == 3:
+        # Fix: Перевірка "is not None" замість "state_dim == 3" для коректного визначення типу
+        if kf_a is not None:
             kf_a[i] = ab_filter.get_acceleration()
             
     print(f"  Оброблено {n_total} точок.")
@@ -147,8 +151,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         'q_value': alpha_vals, 
         'valid_measurement': ~is_imputed
     }
-    if state_dim == 3:
-        kf_a = kf_a
+    if kf_a is not None:
         result_data['kf_a'] = kf_a
         
     return pd.DataFrame(result_data, index=df_prepared.index)

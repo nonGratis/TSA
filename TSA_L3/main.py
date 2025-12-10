@@ -40,6 +40,9 @@ def main():
             df = pd.read_csv(args.file)
         else:
             df = dl.fetch_data(args.url)
+        
+        if df is None:
+            raise ValueError("Дані не отримано (dl.fetch_data повернув None)")
             
         config = vars(args)
         config['dt'] = 1.0
@@ -48,11 +51,12 @@ def main():
         df_res = pl.run_pipeline(df, config)
         
         # Metrics
-        mask = df_res['valid_measurement']
+        mask_metrics = ~np.isnan(df_res['residual'])
+        
         metrics = mt.evaluate_filter_performance(
-            df_res['r_id_raw'][mask], 
-            df_res['kf_x'][mask], 
-            df_res['residual'][mask]
+            np.asarray(df_res['r_id_raw'][mask_metrics].values, dtype=float), 
+            np.asarray(df_res['kf_x'][mask_metrics].values, dtype=float), 
+            np.asarray(df_res['residual'][mask_metrics].values, dtype=float)
         )
         
         # Prediction
@@ -68,17 +72,16 @@ def main():
             
         # Визначаємо R для прогнозу: аргумент CLI -> реальна статистика залишків -> дефолт
         if args.measurement_noise:
-            pred_r = args.measurement_noise
+            pred_r = float(args.measurement_noise)
         else:
-            # R ~ Var(residuals) = std^2
             est_std = metrics.get('residual_std', 1.0)
-            pred_r = est_std**2 if est_std > 1e-9 else 1.0
+            pred_r = float(est_std**2) if est_std > 1e-9 else 1.0
 
         pred_filter = AlphaBetaFilter(
             dt=1.0, 
             state_dim=args.state_dim,
             init_state=np.array(init_state),
-            alpha=last_alpha,
+            alpha=float(last_alpha),
             measurement_noise_r=pred_r
         )
         
@@ -102,8 +105,6 @@ def main():
 
     except Exception as e:
         print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
