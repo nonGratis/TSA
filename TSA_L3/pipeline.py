@@ -4,13 +4,9 @@ from typing import Dict, Optional
 
 import data_handler as dh
 from kalman import AlphaBetaFilter, estimate_noise_parameters
-# FIX: Імпортуємо новий адаптер NIS замість старого AdaptiveAlpha
 from adaptive import NISAdapter
 
 def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
-    print("\n=== ПАЙПЛАЙН: ALPHA-BETA ===\n")
-
-    # --- 1. Data Prep ---
     print("[1/4] Очищення...")
     df_prepared = dh.prepare_timeseries(df)
     n_total = len(df_prepared)
@@ -56,11 +52,14 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     
     residuals = np.full(n_total, np.nan)
     alpha_vals = np.zeros(n_total)
+    process_q_vals = np.zeros(n_total)
     nis_vals = np.zeros(n_total)
     
+    # Init first point
     kf_x[0] = ab_filter.get_position()
     kf_p_var[0] = ab_filter.get_position_variance()
     alpha_vals[0] = ab_filter.alpha
+    process_q_vals[0] = ab_filter.Q
     residuals[0] = 0.0
     
     imputed_mode = config.get('imputed_update_mode', 'skip')
@@ -69,13 +68,15 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         measurement = r_id_input[i]
         
         # A. Prediction
+        # P = A*P*A' + Q
         ab_filter.predict()
         
-        # B. Innovation & Theoretical Variance
+        # B. Innovation Stats (S is calculated using H*P*H' + R)
         residual = ab_filter.get_residual(measurement)
         S = ab_filter.get_innovation_variance()
         
         should_update = True
+        r_current_step = None # Стандартне R
         
         # C. Handling Imputed
         if is_imputed[i]:
@@ -83,34 +84,37 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
                 should_update = False
                 residual = np.nan 
             elif imputed_mode == 'weighted':
-                # Manual intervention, adaptation might be unstable here
-                old_alpha = ab_filter.alpha
-                ab_filter.set_alpha(old_alpha * 0.1) 
-                ab_filter.update(measurement)
-                ab_filter.set_alpha(old_alpha)
-                should_update = False 
+                # Замість ручного "set_alpha", ми збільшуємо невизначеність вимірювання (R).
+                # Це автоматично зменшить Kalman Gain (Alpha) математично коректним способом.
+                # Inflation factor = 100 (тобто довіра в 100 разів менша)
+                r_current_step = R_fixed * 100.0
+                should_update = True 
         
         # D. Adaptation & Update
         current_nis = 0.0
         if should_update:
-            current_nis = (residual**2) / (S + 1e-9)
+            # NIS calculation based on rigorous S
+            current_nis = (residual**2) / (S + 1e-12)
             
-            if adapter:
+            if adapter and not is_imputed[i]: # Адаптуємося тільки на реальних даних
                 # 1. Adapt Q based on NIS
-                # FIX: Використовуємо метод update нового адаптера
                 new_Q = adapter.update(residual, S, ab_filter.Q, Q_base)
                 
-                # 2. Recalculate Filter Gains (Alpha/Beta)
-                ab_filter.update_params_from_noise(new_Q, R_fixed)
+                # 2. Update Filter Noise Matrices (rebuilds Q_mat)
+                ab_filter.update_noise_matrices(new_Q, R_fixed)
             
-            ab_filter.update(measurement)
+            # Update State (x = x + K*y) and Covariance (P = (I-KH)P)
+            # Pass r_current_step to handle 'weighted' logic correcty
+            ab_filter.update(measurement, r_override=r_current_step)
         
         # E. Store
         residuals[i] = residual
         kf_x[i] = ab_filter.get_position()
         kf_v[i] = ab_filter.get_velocity()
         kf_p_var[i] = ab_filter.get_position_variance()
-        alpha_vals[i] = ab_filter.alpha
+        
+        alpha_vals[i] = ab_filter.alpha # Отримуємо реальний gain K[0]
+        process_q_vals[i] = ab_filter.Q
         nis_vals[i] = current_nis
         
         if kf_a is not None:
@@ -126,7 +130,8 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         'kf_v': kf_v,
         'residual': residuals,
         'kf_p_var': kf_p_var,
-        'q_value': alpha_vals,
+        'alpha': alpha_vals,
+        'process_q': process_q_vals,
         'nis': nis_vals,
         'valid_measurement': ~is_imputed
     }

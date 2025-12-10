@@ -1,9 +1,8 @@
 import numpy as np
 from typing import Optional, Tuple
 
-
 def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
-    """Оцінка Q та R методом дисперсій різниць."""
+    """Оцінка Q та R методом дисперсій різниць (без змін)."""
     if len(y) < 2:
         return 1.0, 1.0
 
@@ -21,17 +20,20 @@ def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
 
 class AlphaBetaFilter:
     """
-    Steady-State Kalman Filter (Alpha-Beta(-Gamma)).
-    Використовує аналітичний розв'язок рівняння Ріккаті для стаціонарного режиму.
+    Реалізація фільтра Калмана у матричному вигляді.
+    Забезпечує точний розрахунок коваріації інновації (S) для NIS-аналізу.
+    
+    Зберігає інтерфейс AlphaBetaFilter для сумісності, але всередині працює 
+    як повноцінний Kalman Filter.
     """
     def __init__(
         self,
         dt: float = 1.0,
         state_dim: int = 2,
-        process_noise_q: float = 1.0,
+        process_noise_q: float = 1.0, # Це спектральна щільність шуму (scalar scaling factor)
         measurement_noise_r: float = 1.0,
         init_state: Optional[np.ndarray] = None,
-        alpha: Optional[float] = None
+        alpha: Optional[float] = None # Deprecated в матричному режимі, ігнорується
     ):
         if state_dim not in [2, 3]:
             raise ValueError("state_dim must be 2 or 3")
@@ -39,128 +41,179 @@ class AlphaBetaFilter:
         self.dt = dt
         self.state_dim = state_dim
         
-        # State Vector [x, v, a]
-        self.x = 0.0
-        self.v = 0.0
-        self.a = 0.0
-        
+        # 1. State Vector [x, v, (a)]
+        self.x_state = np.zeros((state_dim, 1))
         if init_state is not None:
-            self.x = float(init_state[0])
-            if len(init_state) > 1: self.v = float(init_state[1])
-            if len(init_state) > 2 and state_dim == 3: self.a = float(init_state[2])
+            self.x_state[0, 0] = float(init_state[0])
+            if len(init_state) > 1: self.x_state[1, 0] = float(init_state[1])
+            if len(init_state) > 2 and state_dim == 3: self.x_state[2, 0] = float(init_state[2])
 
-        self.R = measurement_noise_r
-        self.Q = process_noise_q
-        
-        # Gains
-        self.alpha = 0.1
-        self.beta = 0.01
-        self.gamma = 0.0
-        
-        if alpha is not None:
-            self.set_alpha(alpha)
+        # 2. Matrices definition
+        # Transition Matrix (A)
+        if state_dim == 2:
+            self.A = np.array([
+                [1.0, dt],
+                [0.0, 1.0]
+            ])
+            # Measurement Matrix (H) - we measure position only
+            self.H = np.array([[1.0, 0.0]])
         else:
-            self.update_params_from_noise(process_noise_q, measurement_noise_r)
+            self.A = np.array([
+                [1.0, dt, 0.5*dt**2],
+                [0.0, 1.0, dt],
+                [0.0, 0.0, 1.0]
+            ])
+            self.H = np.array([[1.0, 0.0, 0.0]])
+
+        # Identity Matrix
+        self.I = np.eye(state_dim)
+
+        # 3. Covariance Initialization (P)
+        # Початкова невизначеність. Якщо невідомо, ставимо велику.
+        self.P = np.eye(state_dim) * 100.0 
+        
+        # 4. Noise Matrices Initialization
+        # Зберігаємо скалярні фактори для оновлень
+        self.q_scalar = process_noise_q
+        self.r_scalar = measurement_noise_r
+        
+        self.Q_mat = np.eye(state_dim) # Placeholder, буде оновлено в update_noise_matrices
+        self.R_mat = np.array([[measurement_noise_r]])
+        
+        self.update_noise_matrices(process_noise_q, measurement_noise_r)
+        
+        # Public properties for access
+        self.alpha = 0.0 # Will be synced with K[0]
+        self.beta = 0.0
+        self.S = 0.0 # Innovation covariance storage
+
+    def update_noise_matrices(self, q: float, r: float) -> None:
+        """Оновлення матриць шуму Q та R."""
+        self.q_scalar = q
+        self.r_scalar = max(r, 1e-9)
+        self.R_mat[0, 0] = self.r_scalar
+        
+        # Формування матриці Q (Discrete White Noise Acceleration Model)
+        # Q = q * [terms based on dt]
+        if self.state_dim == 2:
+            # Piecewise Constant White Acceleration approx for dim 2
+            self.Q_mat = q * np.array([
+                [0.25 * self.dt**4, 0.5 * self.dt**3],
+                [0.5 * self.dt**3,      self.dt**2]
+            ])
+            # Альтернатива (спрощена, яку часто використовують):
+            # self.Q_mat = q * np.array([[self.dt**3/3, self.dt**2/2], [self.dt**2/2, self.dt]])
+        else:
+            # Для dim=3 (Jerk as noise)
+            dt = self.dt
+            self.Q_mat = q * np.array([
+                [dt**5/20, dt**4/8, dt**3/6],
+                [dt**4/8,  dt**3/3, dt**2/2],
+                [dt**3/6,  dt**2/2, dt]
+            ])
 
     def update_params_from_noise(self, q: float, r: float) -> None:
-        """
-        Розрахунок оптимальних Alpha/Beta через Tracking Index (Lambda).
-        Lambda = (Q * dt^k) / R.
-        """
-        self.Q = q
-        self.R = max(r, 1e-9)
-        
-        if self.state_dim == 2:
-            # Lambda for Constant Velocity
-            lambda_idx = np.sqrt(self.Q / self.R) * (self.dt ** 2)
-            
-            # Optimal solution (Kalman stationary gain)
-            r_param = (4 + lambda_idx - np.sqrt(8 * lambda_idx + lambda_idx**2)) / 4
-            self.alpha = 1 - r_param**2
-            self.beta = 2 * (2 - self.alpha) - 4 * np.sqrt(1 - self.alpha)
-            self.gamma = 0.0
-            
-        else: # dim == 3
-            # Lambda for Constant Acceleration (Jezek approx)
-            lambda_idx = (self.Q / self.R) * (self.dt ** 4)
-            b = lambda_idx / 2.0
-            self.alpha = 1 - (1.0 / (1 + b))**3
-            
-            # Stability constraints
-            self.alpha = np.clip(self.alpha, 0.001, 0.999)
-            self.beta = 2 * (2 - np.sqrt(1 - self.alpha))
-            self.gamma = (self.beta**2) / (2 * self.alpha)
+        """Аліас для сумісності з пайплайном."""
+        self.update_noise_matrices(q, r)
 
-    def set_alpha(self, new_alpha: float) -> None:
-        """Ручне встановлення alpha зі збереженням зв'язків стабільності."""
-        self.alpha = np.clip(new_alpha, 0.001, 0.999)
-        if self.state_dim == 2:
-            self.beta = 2 * (2 - self.alpha) - 4 * np.sqrt(1 - self.alpha)
-        else:
-            self.beta = 2 * (2 - np.sqrt(1 - self.alpha))
-            self.gamma = (self.beta**2) / (2 * self.alpha)
+    def set_alpha(self, alpha: float) -> None:
+        """
+        [DEPRECATED] У матричному фільтрі Alpha вираховується автоматично через K.
+        Цей метод залишено, щоб код не падав, але він не має ефекту на матрицю P.
+        """
+        pass
 
     def predict(self) -> float:
-        if self.state_dim == 2:
-            self.x += self.v * self.dt
-        else:
-            self.x += self.v * self.dt + 0.5 * self.a * self.dt**2
-            self.v += self.a * self.dt
-        return self.x
+        # 1. State Extrapolation: x = A * x
+        self.x_state = self.A @ self.x_state
+        
+        # 2. Covariance Extrapolation: P = A * P * A.T + Q
+        self.P = self.A @ self.P @ self.A.T + self.Q_mat
+        
+        return float(self.x_state[0, 0])
 
-    def update(self, measurement: float) -> float:
-        residual = measurement - self.x
+    def update(self, measurement: float, r_override: Optional[float] = None) -> float:
+        """
+        Крок оновлення (Update/Correction).
         
-        self.x += self.alpha * residual
-        self.v += (self.beta / self.dt) * residual
+        Args:
+            measurement: Виміряне значення.
+            r_override: Опціонально - тимчасове значення R для цього кроку (для weighted update).
+        """
+        # Використовуємо тимчасовий R, якщо задано, інакше стандартний
+        R_curr = np.array([[r_override]]) if r_override is not None else self.R_mat
+
+        # 1. Innovation (Residual): y = z - H * x
+        z = np.array([[measurement]])
+        y = z - self.H @ self.x_state
         
-        if self.state_dim == 3:
-            self.a += (self.gamma / (0.5 * self.dt**2)) * residual
-            
-        return self.x
+        # 2. Innovation Covariance: S = H * P * H.T + R
+        # Це єдиний математично коректний спосіб отримати S для NIS
+        S_mat = self.H @ self.P @ self.H.T + R_curr
+        self.S = float(S_mat[0, 0])
+        
+        # 3. Kalman Gain: K = P * H.T * S^-1
+        K = self.P @ self.H.T / (self.S + 1e-12)
+        
+        # 4. State Update: x = x + K * y
+        self.x_state = self.x_state + K @ y
+        
+        # 5. Covariance Update: P = (I - K * H) * P
+        # Joseph form is more stable: P = (I-KH)P(I-KH)' + KRK', but simple form is usually enough here
+        self.P = (self.I - K @ self.H) @ self.P
+        
+        # Sync simple properties
+        self.alpha = float(K[0, 0])
+        if self.state_dim >= 2:
+            self.beta = float(K[1, 0]) * self.dt # Нормалізація beta до dt
+        
+        return float(self.x_state[0, 0])
 
     def get_residual(self, measurement: float) -> float:
-        return measurement - self.x
+        """Повертає інновацію (y) без оновлення стану."""
+        z = np.array([[measurement]])
+        y = z - self.H @ self.x_state
+        return float(y[0, 0])
 
-    def get_position(self) -> float: return self.x
-    def get_velocity(self) -> float: return self.v
-    def get_acceleration(self) -> float: return self.a
+    def get_innovation_variance(self) -> float:
+        """Повертає останнє розраховане (або передбачене) S."""
+        # Якщо ми викликаємо це ДО update(), нам треба розрахувати S на основі P_pred
+        S_mat = self.H @ self.P @ self.H.T + self.R_mat
+        return float(S_mat[0, 0])
+    
+    # Гетери для сумісності
+    def get_position(self) -> float: return float(self.x_state[0, 0])
+    def get_velocity(self) -> float: return float(self.x_state[1, 0])
+    def get_acceleration(self) -> float: 
+        return float(self.x_state[2, 0]) if self.state_dim == 3 else 0.0
 
     def get_position_variance(self) -> float:
-        """Теоретична апостеріорна дисперсія позиції (P_ss)."""
-        if self.state_dim == 2:
-            denom = self.alpha * (4 - 2*self.alpha - self.beta)
-            if abs(denom) < 1e-9: denom = 1e-9
-            num = (2 * self.alpha**2 + 2 * self.beta + self.alpha * self.beta)
-            k_gain = num / denom
-        else:
-            k_gain = self.alpha / (1 - self.alpha) # Approx
-        return k_gain * self.R
+        """Повертає P[0,0] - дисперсію позиції."""
+        return float(self.P[0, 0])
     
-    def get_innovation_variance(self) -> float:
-        """
-        Теоретична коваріація інновації S.
-        S = H * P_pred * H^T + R
-        Для Alpha-Beta (скаляр): S = P_pred + R
-        P_pred ≈ P_post / (1 - alpha) (грубе наближення для стаціонарного режиму)
-        Точніше: S = R / (1 - K*H) = R / (1 - alpha)
-        """
-        return self.R / (1.0 - self.alpha + 1e-9)
+    # Властивості Q/R для пайплайну
+    @property
+    def Q(self) -> float: return self.q_scalar
+    
+    @property
+    def R(self) -> float: return self.r_scalar
 
     def predict_k_steps(self, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Прогноз з використанням матриць."""
         preds = np.zeros(k)
         vars_pred = np.zeros(k)
         
-        curr_x, curr_v, curr_a = self.x, self.v, self.a
-        p0 = self.get_position_variance()
+        # Копіюємо стан для симуляції
+        x_curr = self.x_state.copy()
+        P_curr = self.P.copy()
         
         for i in range(k):
-            t = (i + 1) * self.dt
-            if self.state_dim == 2:
-                preds[i] = curr_x + curr_v * t
-                vars_pred[i] = p0 + (t**2) * (p0 * 0.1)
-            else:
-                preds[i] = curr_x + curr_v * t + 0.5 * curr_a * t**2
-                vars_pred[i] = p0 + (t**4) * (p0 * 0.01)
+            # x = A x
+            x_curr = self.A @ x_curr
+            # P = A P A' + Q
+            P_curr = self.A @ P_curr @ self.A.T + self.Q_mat
+            
+            preds[i] = float(x_curr[0, 0])
+            vars_pred[i] = float(P_curr[0, 0])
                 
         return preds, vars_pred
