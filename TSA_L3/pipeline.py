@@ -7,14 +7,14 @@ from kalman import AlphaBetaFilter, estimate_noise_parameters
 from adaptive import NISAdapter
 
 def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
-    print("[1/4] Очищення...")
+    print("[1/3] Попередня обробка даних...")
     df_prepared = dh.prepare_timeseries(df)
     n_total = len(df_prepared)
     
     r_id_input = np.asarray(df_prepared['r_id'].values, dtype=float)
     is_imputed = np.asarray(df_prepared['imputed'].values, dtype=bool)
     
-    print("[2/4] Ініціалізація...")
+    print("\n[2/3] Ініціалізація фільтра та оцінка стохастичних параметрів...")
     state_dim = int(config.get('state_dim', 2))
     dt = float(config.get('dt', 1.0))
     
@@ -26,7 +26,8 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     Q_base = float(cfg_q) if cfg_q is not None else float(proc_noise)
     R_fixed = float(cfg_r) if cfg_r is not None else float(meas_noise)
     
-    print(f"  Base Q: {Q_base:.2e}, Fixed R: {R_fixed:.2e}")
+    model_name = "CV (Постійна швидкість)" if state_dim == 2 else "CA (Постійне прискорення)"
+    print(f"  • Модель: {model_name} | Q_base: {Q_base:.2e} | R_fixed: {R_fixed:.2e}")
     
     init_state = np.zeros(state_dim)
     init_state[0] = r_id_input[0]
@@ -41,9 +42,11 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     
     use_adaptive = config.get('adaptive', True)
     adapter = NISAdapter(dof=1) if use_adaptive else None
-    if use_adaptive: print("  NIS Adaptation: ON")
     
-    print("\n[3/4] Фільтрація...")
+    imputed_mode = config.get('imputed_update_mode', 'skip')
+    print(f"  • Адаптація NIS: {'On' if use_adaptive else 'Off'} | Обробка пропусків: '{imputed_mode}'")
+    
+    print("\n[3/3] Виконання рекурсивної фільтрації...")
     
     kf_x = np.zeros(n_total)
     kf_v = np.zeros(n_total)
@@ -55,14 +58,13 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     process_q_vals = np.zeros(n_total)
     nis_vals = np.zeros(n_total)
     
-    # Init first point
     kf_x[0] = ab_filter.get_position()
     kf_p_var[0] = ab_filter.get_position_variance()
     alpha_vals[0] = ab_filter.alpha
     process_q_vals[0] = ab_filter.Q
     residuals[0] = 0.0
     
-    imputed_mode = config.get('imputed_update_mode', 'skip')
+    updates_count = 0
     
     for i in range(1, n_total):
         measurement = r_id_input[i]
@@ -84,27 +86,19 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
                 should_update = False
                 residual = np.nan 
             elif imputed_mode == 'weighted':
-                # Замість ручного "set_alpha", ми збільшуємо невизначеність вимірювання (R).
-                # Це автоматично зменшить Kalman Gain (Alpha) математично коректним способом.
-                # Inflation factor = 100 (тобто довіра в 100 разів менша)
                 r_current_step = R_fixed * 100.0
                 should_update = True 
         
         # D. Adaptation & Update
         current_nis = 0.0
         if should_update:
-            # NIS calculation based on rigorous S
+            updates_count += 1
             current_nis = (residual**2) / (S + 1e-12)
             
-            if adapter and not is_imputed[i]: # Адаптуємося тільки на реальних даних
-                # 1. Adapt Q based on NIS
+            if adapter and not is_imputed[i]:
                 new_Q = adapter.update(residual, S, ab_filter.Q, Q_base)
-                
-                # 2. Update Filter Noise Matrices (rebuilds Q_mat)
                 ab_filter.update_noise_matrices(new_Q, R_fixed)
             
-            # Update State (x = x + K*y) and Covariance (P = (I-KH)P)
-            # Pass r_current_step to handle 'weighted' logic correcty
             ab_filter.update(measurement, r_override=r_current_step)
         
         # E. Store
@@ -120,7 +114,11 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         if kf_a is not None:
             kf_a[i] = ab_filter.get_acceleration()
             
-    print(f"  Оброблено {n_total} точок.")
+    avg_nis = np.nanmean(nis_vals)
+    final_q = process_q_vals[-1]
+    
+    print(f"  Оброблено {n_total} точок | Оновлень стану: {updates_count}")
+    print(f"  AVG NIS = {avg_nis:.4f} | Фінальний Q = {final_q:.2e}")
 
     result_data = {
         'r_id_raw': r_id_input,

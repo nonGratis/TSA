@@ -29,10 +29,14 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     2. Розширення сітки до floor('h') для початку від 0
     3. Time-weighted інтерполяція.
     """
-    n_total = len(df)
     df = check_timestamp(df)
-    
     df = df.set_index('timestamp').sort_index()
+    
+    # Статистика ДО 
+    raw_count = len(df)
+    raw_start = df.index.min()
+    raw_end = df.index.max()
+
     duplicates = df.index.duplicated(keep='last')
     n_dupes = duplicates.sum()
     if n_dupes > 0:
@@ -51,38 +55,39 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         raise ValueError("Дані порожні! Перевірте файл.")
 
-    print(f"  Часовий проміжок: {df.index.min()} -> {df.index.max()}")
-
     start_dt = df.index.min().floor('h')
     end_dt = df.index.max().ceil('h')
     
     regular_grid = pd.date_range(start=start_dt, end=end_dt, freq='1h')
     
-    # Інтерполяція
     combined_index = df.index.union(regular_grid).unique().sort_values()
     s_combined = df['r_id'].reindex(combined_index)
     
     # limit_direction='both' дозволить заповнити 19:00 значенням з 19:32 (backward fill для старту)
     s_interpolated = s_combined.interpolate(method='time', limit_direction='both')
-    
     s_resampled = s_interpolated.reindex(regular_grid)
     
-
-    # Імпутація (Gap Detection), якщо реальних даних не було +/- 90 хв, вважаємо це імпутованим
     nearest_idx = df.index.get_indexer(regular_grid, method='nearest')
     nearest_timestamps = df.index[nearest_idx]
     time_diffs = np.abs(regular_grid - nearest_timestamps)
     imputed_mask = time_diffs > pd.Timedelta(minutes=90)
     s_filled = s_resampled.ffill().bfill() # Гарантія відсутності NaN
     
-    # Аномалії
     anomaly_mask = _detect_anomalies_cumulative(s_filled)
     if anomaly_mask.any():
         s_filled.loc[anomaly_mask] = np.nan
         s_filled = s_filled.ffill()
         imputed_mask = imputed_mask | anomaly_mask
 
-    print(f"  Створено {len(s_filled)} годинних точок (Початок: {start_dt})")
+    res_count = len(s_filled)
+    res_start = s_filled.index.min()
+    res_end = s_filled.index.max()
+
+    print(f"  {'Етап':<15} | {'К-сть':<8} | {'Початок':<19} | {'Кінець':<19}")
+    print(f"  {'-'*15}-+-{'-'*8}-+-{'-'*19}-+-{'-'*19}")
+    print(f"  {'Вхідні (Сирі)':<15} | {raw_count:<8} | {str(raw_start):<19} | {str(raw_end):<19}")
+    print(f"  {'Оброблені (1h)':<15} | {res_count:<8} | {str(res_start):<19} | {str(res_end):<19}")
+    print(f"  Всього імпутованих точок: {imputed_mask.sum()} з {res_count} ({100.0 * imputed_mask.sum() / res_count:.2f}%)")
     
     return pd.DataFrame({
         'r_id': s_filled.astype(float),

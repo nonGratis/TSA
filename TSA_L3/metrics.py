@@ -151,7 +151,7 @@ def evaluate_filter_performance(
         metrics['acf_lag1'] = 0.0
     
     if verbose:
-        print("МЕТРИКИ ЯКОСТІ ФІЛЬТРАЦІЇ")
+        print("\nМЕТРИКИ ЯКОСТІ ФІЛЬТРАЦІЇ")
         print(f"RMSE:                  {metrics['rmse']:.4f}")
         print(f"MAE:                   {metrics['mae']:.4f}")
         print(f"R²:                    {metrics['r2']:.4f}")
