@@ -1,0 +1,251 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from typing import Optional, Union, Tuple
+
+COLOR_PRIMARY = '#1323e9'
+COLOR_SECONDARY = '#ffaa3a'
+COLOR_ACCENT = '#eb5f54'
+COLOR_BLACK = '#000000'
+COLOR_GRAY = '#cccccc'
+
+
+def plot_kalman_results(
+    df: pd.DataFrame,
+    k_steps_prediction: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None,
+    title: str = "Результати Kalman-фільтрації",
+    save_path: Optional[str] = None
+) -> None:
+    fig, ax = plt.subplots(figsize=(14, 7))
+    t = np.arange(len(df))
+
+    # Сирі дані
+    ax.plot(t, df['r_id_raw'], 'o', color=COLOR_GRAY, markersize=3,
+            alpha=0.5, label='Сирі дані', zorder=1)
+
+    # Імпутовані точки
+    imputed_idx = df['is_imputed'].astype(bool).values
+    if imputed_idx.any():
+        ax.scatter(t[imputed_idx], df['r_id_raw'].values[imputed_idx],
+                   color=COLOR_SECONDARY, s=80, marker='x', linewidths=2,
+                   label='Імпутовано', zorder=3)
+
+    # Аномалії
+    anomaly_idx = df['is_anomaly'].astype(bool).values
+    if anomaly_idx.any():
+        ax.scatter(t[anomaly_idx], df['r_id_raw'].values[anomaly_idx],
+                   color=COLOR_ACCENT, s=100, marker='D',
+                   label='Аномалії', zorder=4)
+
+    # Kalman-фільтр
+    ax.plot(t, df['kf_x'], color=COLOR_PRIMARY, linewidth=2.5,
+            label='Kalman-фільтр', zorder=2)
+
+    # k-кроковий прогноз (+ CI якщо передано variance)
+    if k_steps_prediction is not None:
+        # підтримка двох форматів: (preds, vars) або просто preds
+        if isinstance(k_steps_prediction, tuple):
+            preds, vars_pos = k_steps_prediction
+            preds = np.asarray(preds, dtype=float)
+            stds = np.sqrt(np.maximum(np.asarray(vars_pos, dtype=float), 0.0))
+        else:
+            preds = np.asarray(k_steps_prediction, dtype=float)
+            stds = None
+
+        k = len(preds)
+        t_future = np.arange(len(df), len(df) + k)
+
+        # намалювати прогноз, зберегти межі Y до CI
+        ax.plot(t_future, preds, '--', color=COLOR_ACCENT,
+                linewidth=2, label=f'Прогноз {k} кроків', alpha=0.8, zorder=2)
+        ax.axvline(x=len(df) - 1, color=COLOR_GRAY, linestyle=':', linewidth=1.5, alpha=0.7)
+
+        ax.relim()
+        ax.autoscale_view()
+        orig_ylim = ax.get_ylim()
+
+        if stds is not None:
+            ci = 1.96 * stds
+            upper = preds + ci
+            lower = preds - ci
+            ax.fill_between(t_future, lower, upper, color=COLOR_ACCENT, alpha=0.15,
+                            label='95% CI прогнозу', zorder=1, clip_on=True)
+            # повернути масштаб Y до стану без CI (обрізка)
+            ax.set_ylim(orig_ylim)
+
+    ax.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Накопичувальний лічильник (r_id)', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, loc='best')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_residuals_analysis(
+    df: pd.DataFrame,
+    title: str = "Аналіз залишків",
+    save_path: Optional[str] = None
+) -> None:
+    has_q = 'q_value' in df.columns
+    
+    if has_q:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10),
+                                       gridspec_kw={'height_ratios': [2, 1]})
+    else:
+        fig, ax1 = plt.subplots(1, 1, figsize=(14, 6))
+    
+    t = np.arange(len(df))
+    residuals = np.asarray(df['residual'].values, dtype=float)
+    
+    # Графік залишків
+    ax1.scatter(t, residuals, color=COLOR_PRIMARY, s=20, alpha=0.6,
+               label='Залишки')
+    ax1.axhline(y=0, color=COLOR_BLACK, linestyle='--', linewidth=1.5)
+    
+    # Ковзна дисперсія (вікно 24 години)
+    window = 24
+    if len(residuals) > window:
+        rolling_var = pd.Series(residuals).rolling(window=window, center=True).var()
+        rolling_std = np.sqrt(rolling_var)
+        
+        # Довірчі межі ±2σ
+        ax1_twin = ax1.twinx()
+        ax1_twin.plot(t, rolling_std, color=COLOR_ACCENT, linewidth=2,
+                     alpha=0.7, label=f'Ковзна σ (вікно={window})')
+        ax1_twin.fill_between(t, -2*rolling_std, 2*rolling_std,
+                              color=COLOR_ACCENT, alpha=0.1)
+        ax1_twin.set_ylabel('Ковзна σ', fontsize=11, color=COLOR_ACCENT)
+        ax1_twin.legend(fontsize=9, loc='upper right')
+    
+    ax1.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Залишок (measurement - prediction)', fontsize=12,
+                  fontweight='bold')
+    ax1.set_title(title, fontsize=14, fontweight='bold')
+    ax1.legend(fontsize=10, loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    # Графік адаптивного Q
+    if has_q:
+        q_values = np.asarray(df['q_value'].values, dtype=float)
+        ax2.plot(t, q_values, color=COLOR_SECONDARY, linewidth=2)
+        ax2.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
+        ax2.set_ylabel('Q (процесний шум)', fontsize=12, fontweight='bold')
+        ax2.set_title('Адаптація процесного шуму Q', fontsize=12,
+                     fontweight='bold')
+        ax2.grid(True, alpha=0.3)
+        ax2.set_yscale('log')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_acf_histogram(
+    residuals: np.ndarray,
+    acf_values: np.ndarray,
+    confidence_bound: float,
+    title: str = "Діагностика залишків",
+    save_path: Optional[str] = None
+) -> None:
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Гістограма залишків
+    ax1.hist(residuals, bins=30, color=COLOR_PRIMARY, alpha=0.7,
+            edgecolor=COLOR_BLACK, density=True)
+    ax1.axvline(x=0, color=COLOR_ACCENT, linestyle='--', linewidth=2)
+    
+    # Додаємо нормальний розподіл для порівняння
+    mu, sigma = np.mean(residuals), np.std(residuals)
+    x = np.linspace(residuals.min(), residuals.max(), 100)
+    normal_dist = (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+    ax1.plot(x, normal_dist, color=COLOR_ACCENT, linewidth=2,
+            label=f'N({mu:.2f}, {sigma:.2f}²)')
+    
+    ax1.set_xlabel('Значення залишку', fontsize=11, fontweight='bold')
+    ax1.set_ylabel('Щільність', fontsize=11, fontweight='bold')
+    ax1.set_title('Розподіл залишків', fontsize=12, fontweight='bold')
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3, axis='y')
+    
+    # Статистика
+    textstr = f'μ = {mu:.4f}\nσ = {sigma:.4f}\nN = {len(residuals)}'
+    ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=10,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    # ACF графік
+    lags = np.arange(len(acf_values))
+    ax2.stem(lags, acf_values, linefmt=COLOR_PRIMARY, markerfmt='o',
+            basefmt=COLOR_BLACK)
+    
+    # Довірчі межі
+    ax2.axhline(y=confidence_bound, color=COLOR_ACCENT, linestyle='--',
+               linewidth=1.5, alpha=0.7, label=f'±{confidence_bound:.3f} (95%)')
+    ax2.axhline(y=-confidence_bound, color=COLOR_ACCENT, linestyle='--',
+               linewidth=1.5, alpha=0.7)
+    ax2.axhline(y=0, color=COLOR_BLACK, linewidth=1)
+    
+    ax2.set_xlabel('Лаг', fontsize=11, fontweight='bold')
+    ax2.set_ylabel('ACF', fontsize=11, fontweight='bold')
+    ax2.set_title('Автокореляційна функція (ACF)', fontsize=12,
+                 fontweight='bold')
+    ax2.legend(fontsize=10)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim(-1, 1)
+    
+    plt.suptitle(title, fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_velocity_analysis(
+    df: pd.DataFrame,
+    title: str = "Аналіз швидкості змін",
+    save_path: Optional[str] = None
+) -> None:
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    t = np.arange(len(df))
+    velocity = np.asarray(df['kf_v'].values, dtype=float)
+    
+    ax.plot(t, velocity, color=COLOR_PRIMARY, linewidth=2)
+    ax.axhline(y=0, color=COLOR_BLACK, linestyle='--', linewidth=1.5)
+    
+    # Статистика швидкості
+    mean_v = float(np.mean(velocity))
+    std_v = float(np.std(velocity))
+    ax.axhline(y=mean_v, color=COLOR_ACCENT, linestyle=':', linewidth=2,
+              alpha=0.7, label=f'Середня швидкість: {mean_v:.2f}')
+    ax.fill_between(t, mean_v - std_v, mean_v + std_v,
+                    color=COLOR_ACCENT, alpha=0.1,
+                    label=f'±1σ ({std_v:.2f})')
+    
+    ax.set_xlabel('Індекс часу (години)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Швидкість (Δr_id/год)', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
