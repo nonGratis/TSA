@@ -142,15 +142,27 @@ def main():
         print(f"\nПрогноз {args.k_steps} кроків вперед...")
         
         # Використаємо оцінку залишків для ініціалізації P (щоб CI були більш інформативні)
-        residual_std = metrics_result.get('residual_std', 1.0)
-        init_P = np.eye(config['state_dim']) * max(residual_std**2, 1e-6)
-        
-        # Створюємо новий фільтр з фінальним станом та ініціалізованим P
-        init_state = np.array([df_result['kf_x'].iloc[-1], df_result['kf_v'].iloc[-1]])
+        if 'q_value' in df_result.columns:
+            final_q = float(df_result['q_value'].iloc[-1])
+        elif config['process_noise'] is not None:
+            final_q = config['process_noise']
+        else:
+            final_q = 1.0
+
+        init_P = np.eye(config['state_dim']) * df_result['kf_p_var'].iloc[-1]
+
+        # 3. Стан
+        if config['state_dim'] == 3 and 'kf_a' in df_result.columns:
+            init_state = np.array([df_result['kf_x'].iloc[-1], df_result['kf_v'].iloc[-1], df_result['kf_a'].iloc[-1]])
+        else:
+            init_state = np.array([df_result['kf_x'].iloc[-1], df_result['kf_v'].iloc[-1]])
+
+        print(f"   Параметри прогнозу: Q_forecast={final_q:.2e}, P_init_var={init_P[0,0]:.2e}")
+
         final_kf = KalmanFilter(
             dt=config['dt'],
             state_dim=config['state_dim'],
-            process_noise_q=metrics_result.get('residual_std', 1.0) ** 2,
+            process_noise_q=final_q,  # Використовуємо "чисте" Q
             measurement_noise_r=config['measurement_noise'],
             init_state=init_state,
             init_P=init_P
