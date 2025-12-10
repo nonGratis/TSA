@@ -66,12 +66,20 @@ def main():
         if args.state_dim == 3 and 'kf_a' in df_res.columns:
             init_state.append(df_res['kf_a'].iloc[-1])
             
+        # Визначаємо R для прогнозу: аргумент CLI -> реальна статистика залишків -> дефолт
+        if args.measurement_noise:
+            pred_r = args.measurement_noise
+        else:
+            # R ~ Var(residuals) = std^2
+            est_std = metrics.get('residual_std', 1.0)
+            pred_r = est_std**2 if est_std > 1e-9 else 1.0
+
         pred_filter = AlphaBetaFilter(
             dt=1.0, 
             state_dim=args.state_dim,
             init_state=np.array(init_state),
             alpha=last_alpha,
-            measurement_noise_r=args.measurement_noise if args.measurement_noise else 100.0
+            measurement_noise_r=pred_r
         )
         
         preds, vars_pred = pred_filter.predict_k_steps(args.k_steps)
