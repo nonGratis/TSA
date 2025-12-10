@@ -17,7 +17,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     df_prepared = dh.prepare_timeseries(df)
     n_total = len(df_prepared)
     
-    r_id_raw = np.asarray(df_prepared['r_id'].values, dtype=float)
+    r_id_input = np.asarray(df_prepared['r_id'].values, dtype=float)
     is_imputed = np.asarray(df_prepared['imputed'].values, dtype=bool)
     
     # --- Етап 2: Ініціалізація ---
@@ -26,7 +26,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     dt = config.get('dt', 1.0)
     
     # Оцінка шумів для розрахунку базових alpha/beta
-    proc_noise, meas_noise = estimate_noise_parameters(r_id_raw)
+    proc_noise, meas_noise = estimate_noise_parameters(r_id_input)
     
     # Оверрайд шумів з конфігу (якщо задано)
     Q = config.get('process_noise') if config.get('process_noise') else proc_noise
@@ -38,7 +38,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     # Створення фільтра
     # Ініціалізація стану: перша точка - x, v=0, a=0
     init_state = np.zeros(state_dim)
-    init_state[0] = r_id_raw[0]
+    init_state[0] = r_id_input[0]
     
     ab_filter = AlphaBetaFilter(
         dt=dt, 
@@ -65,51 +65,61 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     kf_v = np.zeros(n_total)
     kf_a = np.zeros(n_total) if state_dim == 3 else None
     kf_p_var = np.zeros(n_total) # "Variance" proxy
-    residuals = np.zeros(n_total)
+    
+    residuals = np.full(n_total, np.nan)
     alpha_vals = np.zeros(n_total)
     
     # Перша точка
     kf_x[0] = ab_filter.get_position()
     kf_p_var[0] = ab_filter.get_position_variance()
     alpha_vals[0] = ab_filter.alpha
+    residuals[0] = 0.0
     
     imputed_mode = config.get('imputed_update_mode', 'skip')
     
     for i in range(1, n_total):
-        measurement = r_id_raw[i]
+        measurement = r_id_input[i]
         
         # 1. Predict
         ab_filter.predict()
         
-        # 2. Update logic
-        residual = ab_filter.get_residual(measurement)
+        # 2. Innovation (Residual) calculation BEFORE update
+        # Важливо: рахуємо реальну інновацію завжди, навіть для імпутованих даних
+        current_residual = ab_filter.get_residual(measurement)
         
         should_update = True
         
         if is_imputed[i]:
             if imputed_mode == 'skip':
                 should_update = False
-            # weighted не має прямого аналогу в simple alpha-beta, 
-            # але ми можемо просто зменшити alpha тимчасово
+                # Residual залишається NaN, бо ми не довіряємо цьому виміру
+                # і не використовуємо його для корекції
+                current_residual = np.nan 
+                
             elif imputed_mode == 'weighted':
+                # Зменшуємо довіру до виміру через тимчасове зменшення Alpha
                 old_alpha = ab_filter.alpha
                 ab_filter.set_alpha(old_alpha * 0.1) # low trust
+                
+                # Оновлюємо стан
                 ab_filter.update(measurement)
-                ab_filter.set_alpha(old_alpha) # restore
-                should_update = False # вже оновили вручну
+                
+                # Відновлюємо Alpha
+                ab_filter.set_alpha(old_alpha)
+                
+                # Ми зробили оновлення, отже residual є валідним (хоч і з низькою вагою)
+                should_update = False # Прапорець вже оброблено вручну
         
         if should_update:
-            # Адаптація перед оновленням
+            # Адаптація перед оновленням (лише на реальних даних або якщо дозволено)
             if use_adaptive and adapter:
-                new_alpha = adapter.update(residual, R)
+                new_alpha = adapter.update(current_residual, R)
                 ab_filter.set_alpha(new_alpha)
             
             ab_filter.update(measurement)
-            residuals[i] = residual
-        else:
-            residuals[i] = 0.0 # або np.nan
-            
-        # Збереження
+        
+        # Зберігаємо результат
+        residuals[i] = current_residual
         kf_x[i] = ab_filter.get_position()
         kf_v[i] = ab_filter.get_velocity()
         kf_p_var[i] = ab_filter.get_position_variance()
@@ -127,18 +137,18 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     print("\n[4/4] Збір даних...")
     
     result_data = {
-        'r_id_raw': r_id_raw,
-        'r_id_imputed': r_id_raw, 
+        'r_id_raw': r_id_input,
         'is_imputed': is_imputed,
-        'is_anomaly': np.zeros_like(is_imputed), # placeholder
+        'is_anomaly': np.zeros_like(is_imputed),
         'kf_x': kf_x,
         'kf_v': kf_v,
         'residual': residuals,
         'kf_p_var': kf_p_var,
-        'q_value': alpha_vals, # Reuse column name for visualizer compatibility (it expects q_value for plot)
+        'q_value': alpha_vals, 
         'valid_measurement': ~is_imputed
     }
     if state_dim == 3:
+        kf_a = kf_a
         result_data['kf_a'] = kf_a
         
     return pd.DataFrame(result_data, index=df_prepared.index)
