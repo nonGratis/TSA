@@ -3,7 +3,7 @@ import pandas as pd
 
 def check_timestamp(df: pd.DataFrame, col: str = 'timestamp', fmt: str = '%d.%m.%Y %H:%M:%S') -> pd.DataFrame:
     if col not in df.columns:
-        raise KeyError(f"Missing required column '{col}'")
+        raise KeyError(f"Відсутня обов'язкова колонка '{col}'")
     
     if not pd.api.types.is_datetime64_any_dtype(df[col]):
         df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
@@ -11,7 +11,7 @@ def check_timestamp(df: pd.DataFrame, col: str = 'timestamp', fmt: str = '%d.%m.
     bad_mask = df[col].isna()
     bad_count = bad_mask.sum()
     if bad_count > 0:
-        print(f"  [WARN] Видалено {bad_count} рядків з некоректним форматом часу.")
+        print(f"  Увага: Видалено {bad_count} рядків з некоректним форматом часу.")
         df = df.dropna(subset=[col])
     return df
 
@@ -20,7 +20,7 @@ def _detect_anomalies_cumulative(s: pd.Series) -> pd.Series:
     diffs = s.diff().fillna(0.0).astype(float)
     mask_drop: pd.Series = diffs < -1e-6
     if mask_drop.any():
-        print(f"  [ANOMALY] Знайдено {mask_drop.sum()} точок, де лічильник впав (скидання?).")
+        print(f"  Увага: Знайдено {mask_drop.sum()} точок, де лічильник впав (скидання?).")
     return mask_drop
 
 def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
@@ -36,7 +36,7 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     duplicates = df.index.duplicated(keep='last')
     n_dupes = duplicates.sum()
     if n_dupes > 0:
-        print(f"  [DATA] High-frequency events: {n_dupes} seconds had multiple updates. Keeping last state for each.")
+        print(f"  Увага: Високочастотні події: {n_dupes} секунд мали кілька оновлень. Зберігання останнього стану для кожного.")
         df = df[~duplicates]
 
     # Очистка r_id
@@ -51,7 +51,7 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         raise ValueError("Дані порожні! Перевірте файл.")
 
-    print(f"  [DATA] Проміжок: {df.index.min()} -> {df.index.max()}")
+    print(f"  Часовий проміжок: {df.index.min()} -> {df.index.max()}")
 
     start_dt = df.index.min().floor('h')
     end_dt = df.index.max().ceil('h')
@@ -82,7 +82,7 @@ def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
         s_filled = s_filled.ffill()
         imputed_mask = imputed_mask | anomaly_mask
 
-    print(f"  [GRID] Generated {len(s_filled)} hourly points (Start: {start_dt})")
+    print(f"  Створено {len(s_filled)} годинних точок (Початок: {start_dt})")
     
     return pd.DataFrame({
         'r_id': s_filled.astype(float),
