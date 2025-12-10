@@ -2,168 +2,83 @@ import numpy as np
 from collections import deque
 from typing import Optional
 
-
-class AdaptiveQ:
+class AdaptiveAlpha:
     """
-    Адаптивна оцінка процесного шуму Q на основі нормалізованих інновацій
+    Адаптивне налаштування параметру Alpha (smoothing factor).
     
-    Стратегія:
-    - Зберігає скользяче вікно нормалізованих залишків (residual / sqrt(S))
-    - При зростанні дисперсії → збільшує Q (фільтр стає менш жорстким)
-    - При стабільній дисперсії → поступово зменшує Q (фільтр стає жорсткішим)
-    - Використовує інноваційну коваріацію S для правильної нормалізації
-    
-    Параметри:
-    - window: Розмір скользячого вікна
-    - q_min, q_max: Межі для Q
-    - adapt_rate: Коефіцієнт адаптації (множник)
-    - alpha: Поріг для визначення "різкого зростання" варіації
+    Логіка:
+    - Якщо помилка прогнозу (residual) зростає -> збільшуємо Alpha (довіряємо вимірам, менше згладжування).
+    - Якщо помилка мала і стабільна -> зменшуємо Alpha (більше згладжування, краще пригнічення шуму).
     """
-    
     def __init__(
         self,
-        window: int = 24,
-        q_min: float = 1e-6,
-        q_max: float = 1e2,
-        adapt_rate: float = 1.2,
-        alpha: float = 3.0,
-        init_q: float = 1.0
+        window: int = 12,
+        alpha_min: float = 0.05,
+        alpha_max: float = 0.95,
+        base_alpha: float = 0.5
     ):
-        """
-        Args:
-            window: Розмір скользячого вікна залишків (год)
-            q_min: Мінімальне значення Q
-            q_max: Максимальне значення Q
-            adapt_rate: Швидкість адаптації (множник)
-            alpha: Поріг для визначення аномальної варіації
-            init_q: Початкове значення Q
-        """
         self.window = window
-        self.q_min = q_min
-        self.q_max = q_max
-        self.adapt_rate = adapt_rate
-        self.alpha = alpha
+        self.alpha_min = alpha_min
+        self.alpha_max = alpha_max
+        self.current_alpha = base_alpha
         
-        # Поточне значення Q
-        self.q_current = max(min(init_q, q_max), q_min)
+        self.residuals = deque(maxlen=window)
         
-        # Скользяче вікно нормалізованих інновацій
-        self.normalized_innovations = deque(maxlen=window)
-        
-        # Статистика для адаптації
-        self.variance_history = deque(maxlen=10)  # Історія дисперсій
-        self.median_variance: Optional[float] = None
-        
-        # Лічильники для логування
+        # Статистика
         self.increase_count = 0
         self.decrease_count = 0
-        self.max_reached_count = 0
-        self.min_reached_count = 0
-    
-    def update(self, residual: float, innovation_covariance: float = 1.0) -> float:
+        
+    def update(self, residual: float, expected_noise_r: float) -> float:
         """
-        Оновлення Q на основі нового залишку та інноваційної коваріації
+        Повертає нове значення Alpha.
         
         Args:
-            residual: Новий залишок (measurement - prediction)
-            innovation_covariance: S = H P H^T + R (коваріація інновації)
-            
-        Returns:
-            Оновлене значення Q
+            residual: поточна помилка передбачення.
+            expected_noise_r: очікувана дисперсія шуму вимірювання (R).
         """
-        # Нормалізуємо залишок по sqrt(S) для правильної статистики
-        if innovation_covariance > 1e-10:
-            normalized_residual = residual / np.sqrt(innovation_covariance)
+        self.residuals.append(residual)
+        
+        if len(self.residuals) < 3:
+            return self.current_alpha
+            
+        # Поточна середня квадратична помилка (MSE) у вікні
+        current_mse = np.mean(np.square(self.residuals))
+        
+        # Відношення поточної помилки до очікуваного шуму (Signal-to-Noise estimate)
+        # Якщо MSE >> R, значить відбувається маневр -> треба швидка реакція (велике Alpha)
+        # Якщо MSE <= R, значить ми в межах шуму -> треба фільтрація (мале Alpha)
+        
+        ratio = current_mse / (expected_noise_r + 1e-9)
+        
+        # Емпірична функція відображення Ratio -> Alpha
+        # Sigmoid-like mapping or simple linear clamp
+        # Target alpha based on ratio
+        if ratio > 9.0: # 3-sigma deviation
+            target = self.alpha_max
+        elif ratio < 1.0:
+            target = self.alpha_min
         else:
-            normalized_residual = residual
-        
-        # Додаємо нормалізований залишок
-        self.normalized_innovations.append(normalized_residual)
-        
-        # Потрібно мінімум 2 точки для обчислення дисперсії
-        if len(self.normalized_innovations) < 2:
-            return self.q_current
-        
-        # Обчислюємо поточну дисперсію вікна (має бути ~1 для правильно налаштованого фільтра)
-        current_variance = float(np.var(self.normalized_innovations, ddof=1))
-        self.variance_history.append(current_variance)
-        
-        # Потрібно мінімум кілька вимірів для обчислення медіани
-        if len(self.variance_history) < 3:
-            return self.q_current
-        
-        # Обчислюємо медіану дисперсії
-        self.median_variance = float(np.median(self.variance_history))
-        
-        # Перевірка на різке зростання дисперсії (фільтр не встигає)
-        if current_variance > self.alpha * max(self.median_variance, 1.0):
-            # Збільшуємо Q (послаблюємо фільтр)
-            new_q = self.q_current * self.adapt_rate
+            # Log scale mapping between 1 and 9
+            norm = (np.log(ratio) - np.log(1.0)) / (np.log(9.0) - np.log(1.0)) # 0..1
+            target = self.alpha_min + norm * (self.alpha_max - self.alpha_min)
             
-            if new_q >= self.q_max:
-                new_q = self.q_max
-                self.max_reached_count += 1
-                
-                if self.max_reached_count % 10 == 1:  # Логуємо кожні 10 разів
-                    print(f"WARN: Адаптивний Q досягнув максимуму q_max={self.q_max:.2e}")
-            else:
-                self.increase_count += 1
-            
-            self.q_current = new_q
+        # Плавне оновлення (Exponential Moving Average для самого Alpha)
+        # Щоб Alpha не стрибала як скажена
+        smoothing = 0.2
+        new_alpha = self.current_alpha * (1 - smoothing) + target * smoothing
         
-        # Перевірка на стабільність (дисперсія близька до очікуваної ~1)
-        elif current_variance < 0.7 * max(self.median_variance, 0.8) and self.q_current > self.q_min:
-            # Зменшуємо Q (посилюємо фільтр)
-            new_q = self.q_current / self.adapt_rate
+        # Статистика
+        if new_alpha > self.current_alpha + 0.01:
+            self.increase_count += 1
+        elif new_alpha < self.current_alpha - 0.01:
+            self.decrease_count += 1
             
-            if new_q <= self.q_min:
-                new_q = self.q_min
-                self.min_reached_count += 1
-            else:
-                self.decrease_count += 1
-            
-            self.q_current = new_q
-        
-        return self.q_current
-    
-    def get_q(self) -> float:
-        """Повернути поточне значення Q"""
-        return self.q_current
-    
+        self.current_alpha = new_alpha
+        return self.current_alpha
+
     def get_statistics(self) -> dict:
-        """
-        Повернути статистику адаптації
-        
-        Returns:
-            Словник зі статистикою
-        """
         return {
-            'q_current': self.q_current,
-            'q_min': self.q_min,
-            'q_max': self.q_max,
-            'median_variance': self.median_variance,
-            'window_size': len(self.normalized_innovations),
+            'alpha_current': self.current_alpha,
             'increase_count': self.increase_count,
-            'decrease_count': self.decrease_count,
-            'max_reached_count': self.max_reached_count,
-            'min_reached_count': self.min_reached_count
+            'decrease_count': self.decrease_count
         }
-    
-    def reset(self, init_q: Optional[float] = None) -> None:
-        """
-        Скидання адаптера до початкового стану
-        
-        Args:
-            init_q: Нове початкове значення Q (якщо None - використовує поточне)
-        """
-        if init_q is not None:
-            self.q_current = max(min(init_q, self.q_max), self.q_min)
-        
-        self.normalized_innovations.clear()
-        self.variance_history.clear()
-        self.median_variance = None
-        
-        self.increase_count = 0
-        self.decrease_count = 0
-        self.max_reached_count = 0
-        self.min_reached_count = 0
