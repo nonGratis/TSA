@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Tuple
@@ -9,6 +10,94 @@ COLOR_SECONDARY = '#ffaa3a'
 COLOR_ACCENT = '#eb5f54'
 COLOR_BLACK = '#000000'
 COLOR_GRAY = '#cccccc'
+
+
+def plot_data_preprocessing(
+    df_raw: pd.DataFrame,
+    df_resampled: pd.DataFrame,
+    title: str = "Етап 0: Попередня обробка даних (Сирі виміри vs Регулярна сітка)",
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Візуалізація сирих даних та результату ресемплінгу/імпутації.
+    """
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # 1. Підготовка сирих даних для відображення
+    if 'timestamp' in df_raw.columns:
+        # Намагаємося розпарсити час, якщо він ще не є datetime
+        if not pd.api.types.is_datetime64_any_dtype(df_raw['timestamp']):
+            t_raw = pd.to_datetime(df_raw['timestamp'], dayfirst=True, errors='coerce')
+        else:
+            t_raw = df_raw['timestamp']
+    else:
+        t_raw = df_raw.index
+
+    # Отримуємо значення, ігноруючи NaN
+    if 'r_id' in df_raw.columns:
+        val_raw = pd.to_numeric(df_raw['r_id'], errors='coerce')
+    else:
+        val_raw = pd.to_numeric(df_raw.iloc[:, 0], errors='coerce')
+        
+    mask_raw_valid = ~np.isnan(val_raw) & ~np.isnat(t_raw) if hasattr(t_raw, 'dt') else ~np.isnan(val_raw)
+    
+    # 2. Малюємо СИРІ дані (дрібні точки)
+    ax.scatter(t_raw[mask_raw_valid], val_raw[mask_raw_valid], 
+               color=COLOR_GRAY, s=0.1, alpha=0.6, label='Сирі виміри', zorder=1)
+    
+    # 3. Малюємо РЕСЕМПЛІНГ (Крива)
+    t_res = df_resampled.index
+    val_res = df_resampled['r_id_raw']
+    
+    ax.scatter(t_res, val_res,
+            color=COLOR_PRIMARY,
+            s=10,              # adjust size as you wish
+            alpha=0.8,
+            label='Ресемплінг (1 година)',
+            zorder=2)
+            
+    # 4. Підсвічуємо ІМПУТОВАНІ точки
+    if 'is_imputed' in df_resampled.columns:
+        mask_imp = df_resampled['is_imputed'].astype(bool)
+        if mask_imp.any():
+            ax.scatter(t_res[mask_imp], val_res[mask_imp], 
+                       color=COLOR_SECONDARY, s=40, marker='x', linewidth=1.5, 
+                       label='Імпутовані точки (Відновлено)', zorder=3)
+            
+            # 5. Метадані (Статистика)
+            n_raw = mask_raw_valid.sum()
+            n_grid = len(df_resampled)
+            n_imp = mask_imp.sum()
+            pct_imp = (n_imp / n_grid) * 100
+            
+            stats_text = (
+                f"Вхідні виміри: {n_raw}\n"
+                f"Регулярна сітка: {n_grid} точок\n"
+                f"Імпутовано: {n_imp} ({pct_imp:.1f}%)"
+            )
+            
+            # Розміщуємо текст у "легенді" або окремому боксі
+            props = dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor=COLOR_GRAY)
+            ax.text(0.02, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+                    verticalalignment='top', bbox=props, fontfamily='monospace')
+
+    # Форматування часу
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %Hh'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.xticks(rotation=0)
+
+    ax.set_xlabel('Час (UTC)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення лічильника', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.legend(loc='lower right', fontsize=10)
+    ax.grid(True, alpha=0.3, linestyle='--')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_kalman_results(

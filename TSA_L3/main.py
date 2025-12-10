@@ -33,20 +33,19 @@ def main():
     
 
     if args.file:
-        df = pd.read_csv(args.file)
+        df_raw = pd.read_csv(args.file)
     else:
-        df = dl.fetch_data(args.url)
+        df_raw = dl.fetch_data(args.url)
     
-    if df is None:
-        raise ValueError("Не вдалося завантажити дані (df is None).")
+    if df_raw is None:
+        raise ValueError("Не вдалося завантажити дані.")
         
     config = vars(args)
     config['dt'] = 1.0
     
-    df_res = pl.run_pipeline(df, config)
+    df_res = pl.run_pipeline(df_raw, config)
     
     mask_valid = ~np.isnan(df_res['residual'])
-    
     metrics = mt.evaluate_filter_performance(
         np.asarray(df_res['r_id_raw'][mask_valid].values, dtype=float), 
         np.asarray(df_res['kf_x'][mask_valid].values, dtype=float), 
@@ -55,7 +54,6 @@ def main():
     
     print(f"\nПрогноз {args.k_steps} кроків...")
     
-    last_alpha = float(df_res['alpha'].iloc[-1])
     last_x = float(df_res['kf_x'].iloc[-1])
     last_v = float(df_res['kf_v'].iloc[-1])
     
@@ -63,22 +61,16 @@ def main():
     if args.state_dim == 3 and 'kf_a' in df_res.columns:
         init_state.append(float(df_res['kf_a'].iloc[-1]))
         
-    if args.measurement_noise:
-        pred_r = float(args.measurement_noise)
-    else:
-        # R ≈ Var(residuals), якщо фільтр оптимальний
-        est_std = metrics.get('residual_std', 1.0)
-        pred_r = float(est_std**2) if est_std > 1e-9 else 1.0
+    est_std = metrics.get('residual_std', 1.0)
+    pred_r = float(args.measurement_noise) if args.measurement_noise else float(est_std**2)
+    if pred_r <= 0: pred_r = 1.0
 
-    # Ініціалізація фільтра для прогнозу (симуляція)
     pred_filter = AlphaBetaFilter(
         dt=1.0, 
         state_dim=args.state_dim,
         init_state=np.array(init_state),
         measurement_noise_r=pred_r
     )
-    # Синхронізуємо alpha для коректності (хоча матричний фільтр рахує своє K)
-    pred_filter.alpha = last_alpha 
     
     preds, vars_pred = pred_filter.predict_k_steps(args.k_steps)
     stds = np.sqrt(vars_pred)
@@ -86,10 +78,16 @@ def main():
     print(f"  Next (+1h): {preds[0]:.2f}")
     print(f"  End (+{args.k_steps}h): {preds[-1]:.2f} ± {1.96*stds[-1]:.2f} (95% CI)")
     
-    # 5. Візуалізація
     images_dir = Path(__file__).parent / 'images'
     images_dir.mkdir(exist_ok=True)
     
+    dv.plot_data_preprocessing(
+        df_raw, 
+        df_res, 
+        title="Попередня обробка даних та імпутація",
+        save_path=str(images_dir / '00_data_prep.svg')
+    )
+
     dv.plot_kalman_results(df_res, (preds, vars_pred), 
                         title="Результати фільтра Калмана (Alpha/NIS)",
                         save_path=str(images_dir / '01_kf_results.svg'))
