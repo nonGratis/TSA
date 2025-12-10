@@ -3,9 +3,7 @@ from typing import Optional, Tuple
 
 
 def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
-    """
-    Оцінка параметрів шуму (залишаємо для сумісності та розрахунку індексу λ)
-    """
+    """Оцінка Q та R методом дисперсій різниць."""
     if len(y) < 2:
         return 1.0, 1.0
 
@@ -23,10 +21,8 @@ def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
 
 class AlphaBetaFilter:
     """
-    Скалярний фільтр Alpha-Beta (для state_dim=2) або Alpha-Beta-Gamma (для state_dim=3).
-    
-    Це спрощена версія фільтра Калмана для стаціонарних умов.
-    Він не використовує матричні операції.
+    Steady-State Kalman Filter (Alpha-Beta(-Gamma)).
+    Використовує аналітичний розв'язок рівняння Ріккаті для стаціонарного режиму.
     """
     def __init__(
         self,
@@ -35,165 +31,136 @@ class AlphaBetaFilter:
         process_noise_q: float = 1.0,
         measurement_noise_r: float = 1.0,
         init_state: Optional[np.ndarray] = None,
-        alpha: Optional[float] = None,
-        beta: Optional[float] = None,
-        gamma: Optional[float] = None
+        alpha: Optional[float] = None
     ):
         if state_dim not in [2, 3]:
-            raise ValueError("state_dim має бути 2 або 3")
+            raise ValueError("state_dim must be 2 or 3")
         
         self.dt = dt
         self.state_dim = state_dim
         
-        # Ініціалізація стану [x, v, a]
+        # State Vector [x, v, a]
         self.x = 0.0
         self.v = 0.0
-        self.a = 0.0 # Використовується тільки при dim=3
+        self.a = 0.0
         
         if init_state is not None:
             self.x = float(init_state[0])
-            if len(init_state) > 1:
-                self.v = float(init_state[1])
-            if len(init_state) > 2 and state_dim == 3:
-                self.a = float(init_state[2])
+            if len(init_state) > 1: self.v = float(init_state[1])
+            if len(init_state) > 2 and state_dim == 3: self.a = float(init_state[2])
 
-        # Зберігаємо R для розрахунку теоретичної дисперсії помилки
         self.R = measurement_noise_r
+        self.Q = process_noise_q
         
-        # Розрахунок оптимальних alpha/beta/gamma, якщо не задані вручну
-        # Використовуємо Tracking Index Lambda = (Q * dt^k) / R
-        if alpha is None:
-            self.update_params_from_noise(process_noise_q, measurement_noise_r)
+        # Gains
+        self.alpha = 0.1
+        self.beta = 0.01
+        self.gamma = 0.0
+        
+        if alpha is not None:
+            self.set_alpha(alpha)
         else:
-            self.alpha = alpha
-            self.beta = beta if beta is not None else 0.1
-            self.gamma = gamma if gamma is not None else 0.01
+            self.update_params_from_noise(process_noise_q, measurement_noise_r)
 
     def update_params_from_noise(self, q: float, r: float) -> None:
         """
-        Розрахунок оптимальних параметрів фільтра на основі співвідношення шумів.
-        Використовуються аналітичні рішення для стаціонарного фільтра Калмана.
+        Розрахунок оптимальних Alpha/Beta через Tracking Index (Lambda).
+        Lambda = (Q * dt^k) / R.
         """
-        self.R = r
-        if r < 1e-9: r = 1e-9
-        
-        # Tracking Index
-        lambda_idx = np.sqrt(q / r) * (self.dt ** 2)
+        self.Q = q
+        self.R = max(r, 1e-9)
         
         if self.state_dim == 2:
-            # Optimal Alpha-Beta relationships
-            # r_param - допоміжна змінна
+            # Lambda for Constant Velocity
+            lambda_idx = np.sqrt(self.Q / self.R) * (self.dt ** 2)
+            
+            # Optimal solution (Kalman stationary gain)
             r_param = (4 + lambda_idx - np.sqrt(8 * lambda_idx + lambda_idx**2)) / 4
             self.alpha = 1 - r_param**2
             self.beta = 2 * (2 - self.alpha) - 4 * np.sqrt(1 - self.alpha)
             self.gamma = 0.0
             
-        else: # state_dim == 3 (Alpha-Beta-Gamma)
-            # Для ABG lambda визначається інакше (через Q прискорення)
-            lambda_idx = (q / r) * (self.dt ** 4) # approx scaling
-            # Емпіричне наближення для ABG (Jezek's approximation or similar)
+        else: # dim == 3
+            # Lambda for Constant Acceleration (Jezek approx)
+            lambda_idx = (self.Q / self.R) * (self.dt ** 4)
             b = lambda_idx / 2.0
-            self.alpha = 1 - (1.0 / (1 + b))**3 # Crude approx, better to use iterative but this fits "simple filter"
+            self.alpha = 1 - (1.0 / (1 + b))**3
             
-            # Ensure stability constraints
-            self.alpha = np.clip(self.alpha, 0.01, 0.99)
-            self.beta = 2 * (2 - np.sqrt(1-self.alpha)) # Standard constraint relationship
-            self.gamma = (self.beta**2) / (2*self.alpha)
+            # Stability constraints
+            self.alpha = np.clip(self.alpha, 0.001, 0.999)
+            self.beta = 2 * (2 - np.sqrt(1 - self.alpha))
+            self.gamma = (self.beta**2) / (2 * self.alpha)
 
     def set_alpha(self, new_alpha: float) -> None:
-        """
-        Ручне встановлення alpha (для адаптивного режиму).
-        Beta і Gamma перераховуються для збереження стабільності.
-        """
+        """Ручне встановлення alpha зі збереженням зв'язків стабільності."""
         self.alpha = np.clip(new_alpha, 0.001, 0.999)
-        
         if self.state_dim == 2:
-            # Зв'язок для критично демпфованого фільтра
             self.beta = 2 * (2 - self.alpha) - 4 * np.sqrt(1 - self.alpha)
         else:
-            # Зв'язок для ABG
-            self.beta = 2 * (2 - np.sqrt(1 - self.alpha)) # спрощено
+            self.beta = 2 * (2 - np.sqrt(1 - self.alpha))
             self.gamma = (self.beta**2) / (2 * self.alpha)
 
     def predict(self) -> float:
-        """Екстраполяція стану"""
         if self.state_dim == 2:
-            self.x = self.x + self.v * self.dt
-            # self.v не змінюється (constant velocity model)
+            self.x += self.v * self.dt
         else:
-            self.x = self.x + self.v * self.dt + 0.5 * self.a * self.dt**2
-            self.v = self.v + self.a * self.dt
-            # self.a не змінюється (constant acceleration model)
+            self.x += self.v * self.dt + 0.5 * self.a * self.dt**2
+            self.v += self.a * self.dt
         return self.x
 
     def update(self, measurement: float) -> float:
-        """Корекція стану за виміром"""
         residual = measurement - self.x
         
-        self.x = self.x + self.alpha * residual
-        self.v = self.v + (self.beta / self.dt) * residual
+        self.x += self.alpha * residual
+        self.v += (self.beta / self.dt) * residual
         
         if self.state_dim == 3:
-            self.a = self.a + (self.gamma / (0.5 * self.dt**2)) * residual
+            self.a += (self.gamma / (0.5 * self.dt**2)) * residual
             
         return self.x
 
-    def step(self, measurement: float) -> float:
-        self.predict()
-        return self.update(measurement)
-    
     def get_residual(self, measurement: float) -> float:
         return measurement - self.x
 
-    def get_position(self) -> float:
-        return self.x
-
-    def get_velocity(self) -> float:
-        return self.v
-    
-    def get_acceleration(self) -> float:
-        return self.a
+    def get_position(self) -> float: return self.x
+    def get_velocity(self) -> float: return self.v
+    def get_acceleration(self) -> float: return self.a
 
     def get_position_variance(self) -> float:
-        """
-        Повертає теоретичну стаціонарну дисперсію помилки позиції.
-        Var(x) = K * R, де K залежить від alpha/beta.
-        """
+        """Теоретична апостеріорна дисперсія позиції (P_ss)."""
         if self.state_dim == 2:
-            # Формула для сталої дисперсії alpha-beta фільтра
-            # P_pos = [ (2*alpha^2 + 2*beta + alpha*beta) / (alpha * (4 - 2*alpha - beta)) ] * R
-            # Спрощена версія:
-            denominator = self.alpha * (4 - 2*self.alpha - self.beta)
-            if abs(denominator) < 1e-6: denominator = 1e-6
-            numerator = (2 * self.alpha**2 + 2 * self.beta + self.alpha * self.beta)
-            k_gain = numerator / denominator
+            denom = self.alpha * (4 - 2*self.alpha - self.beta)
+            if abs(denom) < 1e-9: denom = 1e-9
+            num = (2 * self.alpha**2 + 2 * self.beta + self.alpha * self.beta)
+            k_gain = num / denom
         else:
-            # Для ABG це складніше, використовуємо наближення через alpha
-            k_gain = self.alpha / (1 - self.alpha)
-            
+            k_gain = self.alpha / (1 - self.alpha) # Approx
         return k_gain * self.R
+    
+    def get_innovation_variance(self) -> float:
+        """
+        Теоретична коваріація інновації S.
+        S = H * P_pred * H^T + R
+        Для Alpha-Beta (скаляр): S = P_pred + R
+        P_pred ≈ P_post / (1 - alpha) (грубе наближення для стаціонарного режиму)
+        Точніше: S = R / (1 - K*H) = R / (1 - alpha)
+        """
+        return self.R / (1.0 - self.alpha + 1e-9)
 
     def predict_k_steps(self, k: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Прогноз на k кроків вперед"""
         preds = np.zeros(k)
         vars_pred = np.zeros(k)
         
         curr_x, curr_v, curr_a = self.x, self.v, self.a
-        
-        # Поточна невизначеність
         p0 = self.get_position_variance()
         
         for i in range(k):
             t = (i + 1) * self.dt
             if self.state_dim == 2:
-                pred_x = curr_x + curr_v * t
-                # Невизначеність зростає лінійно-квадратично
-                # Var(t) ~ P0 + (t^2 * var_v)
-                vars_pred[i] = p0 + (t**2) * (p0 * 0.1) # Approx growth
+                preds[i] = curr_x + curr_v * t
+                vars_pred[i] = p0 + (t**2) * (p0 * 0.1)
             else:
-                pred_x = curr_x + curr_v * t + 0.5 * curr_a * t**2
-                vars_pred[i] = p0 + (t**4) * (p0 * 0.01) # Approx growth
-            
-            preds[i] = pred_x
-            
+                preds[i] = curr_x + curr_v * t + 0.5 * curr_a * t**2
+                vars_pred[i] = p0 + (t**4) * (p0 * 0.01)
+                
         return preds, vars_pred

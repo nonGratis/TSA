@@ -1,84 +1,83 @@
 import numpy as np
 from collections import deque
-from typing import Optional
+from scipy.stats import chi2
 
-class AdaptiveAlpha:
+class NISAdapter:
     """
-    Адаптивне налаштування параметру Alpha (smoothing factor).
+    Адаптація шуму процесу (Q) на основі статистики NIS (Normalized Innovation Squared).
     
-    Логіка:
-    - Якщо помилка прогнозу (residual) зростає -> збільшуємо Alpha (довіряємо вимірам, менше згладжування).
-    - Якщо помилка мала і стабільна -> зменшуємо Alpha (більше згладжування, краще пригнічення шуму).
+    Академічне обґрунтування:
+    NIS = ε_k^T * S_k^(-1) * ε_k, де ε - інновація, S - коваріація інновації.
+    При коректній роботі фільтра NIS підпорядковується розподілу Хі-квадрат (χ²).
+    Якщо E[NIS] >> m (розмірність виміру), це свідчить про розходження фільтра
+    або маневр цілі.
+    
+    Стратегія: Інфляція Q при детекції розходження.
     """
     def __init__(
         self,
-        window: int = 12,
-        alpha_min: float = 0.05,
-        alpha_max: float = 0.95,
-        base_alpha: float = 0.5
+        dof: int = 1,
+        alpha_significance: float = 0.05,
+        window_size: int = 12,
+        scale_factor: float = 5.0,
+        decay_factor: float = 0.95
     ):
-        self.window = window
-        self.alpha_min = alpha_min
-        self.alpha_max = alpha_max
-        self.current_alpha = base_alpha
-        
-        self.residuals = deque(maxlen=window)
-        
-        # Статистика
-        self.increase_count = 0
-        self.decrease_count = 0
-        
-    def update(self, residual: float, expected_noise_r: float) -> float:
         """
-        Повертає нове значення Alpha.
+        Args:
+            dof: Ступені свободи (розмірність виміру).
+            alpha_significance: Рівень значущості (0.05 -> 95% confidence).
+            window_size: Вікно усереднення NIS для робастності.
+        """
+        self.window = deque(maxlen=window_size)
+        
+        # Критичне значення χ² для перевірки гіпотези
+        self.chi2_threshold_high = chi2.ppf(1 - alpha_significance, df=dof)
+        # Нижня межа (опціонально для зменшення Q, тут не використовується агресивно)
+        self.chi2_threshold_low = chi2.ppf(alpha_significance, df=dof)
+        
+        self.scale_factor = scale_factor
+        self.decay_factor = decay_factor
+        self.base_q_multiplier = 1.0
+
+    def update(self, residual: float, S: float, current_q: float, base_q: float) -> float:
+        """
+        Розрахунок нового Q на основі NIS.
         
         Args:
-            residual: поточна помилка передбачення.
-            expected_noise_r: очікувана дисперсія шуму вимірювання (R).
+            residual: Інновація (y - Hx).
+            S: Теоретична коваріація інновації (HPHT + R).
+            current_q: Поточне значення Q.
+            base_q: Базове значення Q (дизайн-параметр).
+            
+        Returns:
+            Нове значення Q.
         """
-        self.residuals.append(residual)
-        
-        if len(self.residuals) < 3:
-            return self.current_alpha
+        if S <= 1e-9:
+            return float(current_q)
             
-        # Поточна середня квадратична помилка (MSE) у вікні
-        current_mse = np.mean(np.square(self.residuals))
+        # 1. Розрахунок NIS
+        nis = (residual ** 2) / S
+        self.window.append(nis)
         
-        # Відношення поточної помилки до очікуваного шуму (Signal-to-Noise estimate)
-        # Якщо MSE >> R, значить відбувається маневр -> треба швидка реакція (велике Alpha)
-        # Якщо MSE <= R, значить ми в межах шуму -> треба фільтрація (мале Alpha)
+        # 2. Усереднення (Sample Mean NIS)
+        mean_nis = np.mean(self.window)
         
-        ratio = current_mse / (expected_noise_r + 1e-9)
-        
-        # Емпірична функція відображення Ratio -> Alpha
-        # Sigmoid-like mapping or simple linear clamp
-        # Target alpha based on ratio
-        if ratio > 9.0: # 3-sigma deviation
-            target = self.alpha_max
-        elif ratio < 1.0:
-            target = self.alpha_min
+        # 3. Перевірка гіпотези (Divergence Test)
+        if mean_nis > self.chi2_threshold_high:
+            # Фільтр розходиться (недооцінює динаміку) -> Inflation Q
+            # Масштабуємо Q пропорційно відхиленню NIS
+            scaling = (mean_nis / self.chi2_threshold_high) * self.scale_factor
+            self.base_q_multiplier = max(self.base_q_multiplier, scaling)
         else:
-            # Log scale mapping between 1 and 9
-            norm = (np.log(ratio) - np.log(1.0)) / (np.log(9.0) - np.log(1.0)) # 0..1
-            target = self.alpha_min + norm * (self.alpha_max - self.alpha_min)
+            # Фільтр узгоджений -> Decay до базового рівня
+            self.base_q_multiplier = max(1.0, self.base_q_multiplier * self.decay_factor)
             
-        # Плавне оновлення (Exponential Moving Average для самого Alpha)
-        # Щоб Alpha не стрибала як скажена
-        smoothing = 0.2
-        new_alpha = self.current_alpha * (1 - smoothing) + target * smoothing
-        
-        # Статистика
-        if new_alpha > self.current_alpha + 0.01:
-            self.increase_count += 1
-        elif new_alpha < self.current_alpha - 0.01:
-            self.decrease_count += 1
-            
-        self.current_alpha = new_alpha
-        return self.current_alpha
+        # FIX: Явне приведення до float для задоволення вимог типізації
+        return float(base_q * self.base_q_multiplier)
 
     def get_statistics(self) -> dict:
         return {
-            'alpha_current': self.current_alpha,
-            'increase_count': self.increase_count,
-            'decrease_count': self.decrease_count
+            'mean_nis': np.mean(self.window) if self.window else 0.0,
+            'q_multiplier': self.base_q_multiplier,
+            'chi2_limit': self.chi2_threshold_high
         }
