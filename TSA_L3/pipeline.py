@@ -76,9 +76,7 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     if config.get('process_noise') is None or config.get('measurement_noise') is None:
         print("  Автоматична робастна оцінка параметрів шуму...")
         proc_noise, meas_noise = estimate_noise_parameters(
-            r_id_raw, 
-            dt=dt, 
-            robust=config.get('robust_estimation', True)
+            r_id_raw
         )
         
         if config.get('process_noise') is None:
@@ -270,16 +268,9 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
     
     return result_df
 
-
-def predict_k_steps_ahead(kf: KalmanFilter, k: int) -> np.ndarray:
+def predict_k_steps_ahead(kf: KalmanFilter, k: int):
     """
-    Прогноз k кроків вперед для поточного стану фільтра
-    
-    Args:
-        kf: Налаштований Kalman-фільтр
-        k: Кількість кроків
-        
-    Returns:
-        Масив прогнозів розміром k
+    Прогноз k кроків вперед для поточного стану фільтра.
+    Поверає (predictions, position_variances)
     """
     return kf.predict_k_steps(k)

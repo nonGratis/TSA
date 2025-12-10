@@ -139,24 +139,30 @@ def main():
             print(f"✗ Залишки мають кореляцію на лагах: {whiteness['significant_lags'][:5]}...")
         
         
-        
-        # Прогноз k кроків вперед
         print(f"\nПрогноз {args.k_steps} кроків вперед...")
         
-        # Створюємо новий фільтр з фінальним станом
+        # Використаємо оцінку залишків для ініціалізації P (щоб CI були більш інформативні)
+        residual_std = metrics_result.get('residual_std', 1.0)
+        init_P = np.eye(config['state_dim']) * max(residual_std**2, 1e-6)
+        
+        # Створюємо новий фільтр з фінальним станом та ініціалізованим P
+        init_state = np.array([df_result['kf_x'].iloc[-1], df_result['kf_v'].iloc[-1]])
         final_kf = KalmanFilter(
             dt=config['dt'],
             state_dim=config['state_dim'],
             process_noise_q=metrics_result.get('residual_std', 1.0) ** 2,
             measurement_noise_r=config['measurement_noise'],
-            init_state=np.array([df_result['kf_x'].iloc[-1], df_result['kf_v'].iloc[-1]])
+            init_state=init_state,
+            init_P=init_P
         )
         
-        k_predictions = final_kf.predict_k_steps(args.k_steps)
+        k_predictions, k_vars = final_kf.predict_k_steps(args.k_steps)
+        k_stds = np.sqrt(np.maximum(k_vars, 0.0))
+        
         print(f"  Прогноз на наступні {args.k_steps} годин:")
         print(f"    Поточне значення: {df_result['kf_x'].iloc[-1]:.2f}")
-        print(f"    Прогноз через {args.k_steps}год: {k_predictions[-1]:.2f}")
-        print(f"    Приріст: {k_predictions[-1] - df_result['kf_x'].iloc[-1]:.2f}")
+        print(f"    Прогноз через {args.k_steps}год: {k_predictions[-1]:.2f} ± {1.96*k_stds[-1]:.2f} (95% CI)")
+        print(f"    Приріст (точково): {k_predictions[-1] - df_result['kf_x'].iloc[-1]:.2f}")
         
         
         # Створюємо директорію images якщо її немає
@@ -164,9 +170,10 @@ def main():
         images_dir.mkdir(exist_ok=True)
         
         # 1. Головний графік з результатами
-        dv.plot_kalman_results(df_result, k_predictions,
-                              title="Kalman-фільтрація кумулятивного ряду",
-                              save_path=str(images_dir / '01_kalman_results.svg'))
+        dv.plot_kalman_results(df_result, (k_predictions, k_vars),
+                            title="Kalman-фільтрація кумулятивного ряду",
+                            save_path=str(images_dir / '01_kalman_results.svg'))
+
         
         # 2. Аналіз залишків
         dv.plot_residuals_analysis(df_result,
