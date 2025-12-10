@@ -18,8 +18,6 @@ def main():
     group.add_argument('--url', type=str, help='URL')
     
     parser.add_argument('--state-dim', type=int, default=2, choices=[2, 3])
-    # Використовуємо імена аргументів як у старому скрипті для сумісності запуску,
-    # але логіка всередині буде скалярна
     parser.add_argument('--process-noise', type=float, default=None, help="Впливає на розрахунок Alpha")
     parser.add_argument('--measurement-noise', type=float, default=None, help="Впливає на розрахунок Alpha")
     
@@ -27,9 +25,8 @@ def main():
     parser.add_argument('--no-adaptive', dest='adaptive', action='store_false')
     
     parser.add_argument('--k-steps', type=int, default=12)
-    parser.add_argument('--imputed-mode', type=str, default='skip')
+    parser.add_argument('--imputed-mode', dest='imputed_update_mode', type=str, default='skip')
     
-    # Заглушки для старих аргументів, щоб не падав скрипт запуску
     parser.add_argument('--robust', action='store_true', default=True)
     parser.add_argument('--window', type=int, default=12)
     parser.add_argument('--q-min', type=float, default=0)
@@ -61,7 +58,6 @@ def main():
         # Prediction
         print(f"\nПрогноз {args.k_steps} кроків...")
         
-        # Init simple filter for prediction
         last_alpha = df_res['q_value'].iloc[-1]
         last_x = df_res['kf_x'].iloc[-1]
         last_v = df_res['kf_v'].iloc[-1]
