@@ -2,194 +2,139 @@ import numpy as np
 from typing import Optional, Tuple
 
 def estimate_noise_parameters(y: np.ndarray) -> Tuple[float, float]:
-    """
-    Robust Noise Estimation using IQR or nanvar to avoid outliers/NaNs.
-    """
-    # 1. Clean NaNs and Infs
+    """Оцінка Q (Process) та R (Measurement) через дисперсії різниць."""
     y_clean = y[np.isfinite(y)]
-    
-    if len(y_clean) < 5:
-        return 1.0, 10.0
+    if len(y_clean) < 10: return 1.0, 10.0
 
-    # 2. First differences (Velocity approx)
     diffs = np.diff(y_clean)
-    
-    # 3. Robust Variance Estimation (using IQR to ignore outliers)
-    # R approx = Variance of velocity (jitter)
-    # Q approx = Variance of acceleration (jerk)
-    
-    def robust_var(data):
-        if len(data) < 2: return 1.0
-        q75, q25 = np.percentile(data, [75 ,25])
-        iqr = q75 - q25
-        if iqr > 0:
-            # Sigma approx = IQR / 1.35
-            return (iqr / 1.35) ** 2
-        else:
-            return np.var(data) # Fallback to standard var
-
-    measurement_noise = float(robust_var(diffs)) # R
+    measurement_noise = np.var(diffs) if len(diffs) > 0 else 1.0
 
     if len(y_clean) >= 5:
         second_diffs = np.diff(diffs)
-        process_noise = float(robust_var(second_diffs)) # Q
+        process_noise = np.var(second_diffs) if len(second_diffs) > 0 else 0.1
     else:
-        process_noise = measurement_noise / 10.0
+        process_noise = measurement_noise * 0.1
 
-    # Sanity bounds (щоб не було 0 або nan)
-    process_noise = max(process_noise, 1e-3)
-    measurement_noise = max(measurement_noise, 1e-2)
-
-    return process_noise, measurement_noise
+    return float(max(process_noise, 1e-4)), float(max(measurement_noise, 1e-2))
 
 
 class AlphaBetaFilter:
     """
-    Матричний фільтр Калмана (CV/CA model).
+    Класичний скалярний Alpha-Beta(-Gamma) фільтр.
+    Реалізація за формулами Benedict-Bordner з тюнінгом чутливості.
     """
     def __init__(
         self,
         dt: float = 1.0,
         state_dim: int = 2,
-        process_noise_q: float = 1.0, 
+        process_noise_q: float = 1.0,
         measurement_noise_r: float = 1.0,
         init_state: Optional[np.ndarray] = None,
-        alpha: Optional[float] = None 
+        alpha: Optional[float] = None
     ):
-        if state_dim not in [2, 3]:
-            raise ValueError("state_dim must be 2 or 3")
-        
         self.dt = float(dt)
         self.state_dim = state_dim
-        
-        # Init State
-        self.x_state = np.zeros((state_dim, 1))
+        self.Q = float(process_noise_q)
+        self.R = float(measurement_noise_r)
+
+        self.x = 0.0
+        self.v = 0.0
+        self.a = 0.0
+
         if init_state is not None:
-            safe_init = np.nan_to_num(init_state, nan=0.0)
-            for i in range(min(len(safe_init), state_dim)):
-                self.x_state[i, 0] = float(safe_init[i])
+            safe = np.nan_to_num(init_state)
+            self.x = float(safe[0])
+            if len(safe) > 1: self.v = float(safe[1])
+            if len(safe) > 2 and state_dim == 3: self.a = float(safe[2])
 
-        # Matrices
-        if state_dim == 2: # Constant Velocity
-            self.A = np.array([[1.0, dt], [0.0, 1.0]])
-            self.H = np.array([[1.0, 0.0]])
-        else: # Constant Acceleration
-            self.A = np.array([[1.0, dt, 0.5*dt**2], [0.0, 1.0, dt], [0.0, 0.0, 1.0]])
-            self.H = np.array([[1.0, 0.0, 0.0]])
-
-        self.I = np.eye(state_dim)
-        
-        # Initial Uncertainty
-        self.P = np.eye(state_dim) * 1000.0 
-        
-        # Noise
-        self.q_scalar = float(process_noise_q) if np.isfinite(process_noise_q) else 1.0
-        self.r_scalar = float(measurement_noise_r) if np.isfinite(measurement_noise_r) else 10.0
-        
-        self.Q_mat = np.eye(state_dim)
-        self.R_mat = np.array([[self.r_scalar]])
-        
-        self.update_noise_matrices(self.q_scalar, self.r_scalar)
-        
-        self.alpha = 0.0 
-        self.S = 0.0 
-
-    def update_noise_matrices(self, q: float, r: float) -> None:
-        q = float(q) if np.isfinite(q) and q > 0 else 1e-6
-        r = float(r) if np.isfinite(r) and r > 0 else 1e-6
-        
-        self.q_scalar = q
-        self.r_scalar = r
-        self.R_mat[0, 0] = r
-        
-        dt = self.dt
-        if self.state_dim == 2:
-            self.Q_mat = q * np.array([
-                [0.25 * dt**4, 0.5 * dt**3],
-                [0.5 * dt**3,      dt**2]
-            ])
+        if alpha is not None:
+            self.alpha = float(alpha)
+            self._recalc_gains_from_alpha()
         else:
-            self.Q_mat = q * np.array([
-                [dt**5/20, dt**4/8, dt**3/6],
-                [dt**4/8,  dt**3/3, dt**2/2],
-                [dt**3/6,  dt**2/2, dt]
-            ])
+            self.update_params_from_noise(self.Q, self.R)
 
     def update_params_from_noise(self, q: float, r: float) -> None:
-        self.update_noise_matrices(q, r)
+        """
+        Розрахунок оптимальних Alpha/Beta.
+        Використовується агресивний Tracking Index для зменшення лагу.
+        """
+        self.Q = max(float(q), 1e-9)
+        self.R = max(float(r), 1e-9)
+        
+        # TUNING: Множник 2.0 для збільшення чутливості (зменшення Bias)
+        lam = (self.Q / self.R) * (self.dt ** 2) * 2.0
 
-    def set_alpha(self, alpha: float) -> None:
-        pass # Not used in Matrix KF directly
+        if self.state_dim == 2:
+            # Benedict-Bordner
+            r_val = (4.0 + lam - np.sqrt(8.0 * lam + lam**2)) / 4.0
+            self.alpha = 1.0 - r_val**2
+            self.beta = 2.0 * (2.0 - self.alpha) - 4.0 * np.sqrt(1.0 - self.alpha)
+            
+            # CRITICAL: Мінімальна Alpha = 0.2 для уникнення інерційності
+            self.alpha = np.clip(self.alpha, 0.2, 0.99)
+            self.gamma = 0.0
+        else:
+            # Емпіричне наближення для CA
+            self.alpha = np.clip(0.6 * np.sqrt(lam), 0.2, 0.95)
+            self.beta = 2.0 * self.alpha
+            self.gamma = 0.5 * (self.alpha ** 2)
+
+    def _recalc_gains_from_alpha(self):
+        if self.state_dim == 2:
+            self.beta = 2 * (2 - np.sqrt(1 - self.alpha))
+            self.gamma = 0.0
+        else:
+            self.beta = 2.0 * self.alpha
+            self.gamma = 0.5 * (self.alpha ** 2)
+
+    def set_alpha(self, alpha: float):
+        self.alpha = np.clip(alpha, 0.001, 0.99)
+        self._recalc_gains_from_alpha()
 
     def predict(self) -> float:
-        self.x_state = self.A @ self.x_state
-        self.P = self.A @ self.P @ self.A.T + self.Q_mat
-        return float(self.x_state[0, 0])
+        if self.state_dim == 2:
+            self.x = self.x + self.v * self.dt
+        else:
+            self.x = self.x + self.v * self.dt + 0.5 * self.a * (self.dt**2)
+            self.v = self.v + self.a * self.dt
+        return self.x
 
-    def update(self, measurement: float, r_override: Optional[float] = None) -> float:
-        if not np.isfinite(measurement):
-            return float(self.x_state[0, 0])
-
-        R_curr = np.array([[r_override]]) if r_override is not None else self.R_mat
-
-        # Innovation
-        z = np.array([[measurement]])
-        y = z - self.H @ self.x_state
+    def update(self, measurement: float) -> float:
+        residual = measurement - self.x
         
-        # S = H P H' + R
-        S_mat = self.H @ self.P @ self.H.T + R_curr
-        self.S = float(S_mat[0, 0])
+        self.x = self.x + self.alpha * residual
+        self.v = self.v + (self.beta / self.dt) * residual
         
-        # K = P H' S^-1
-        K = self.P @ self.H.T / (self.S + 1e-12)
-        
-        # x = x + K y
-        self.x_state = self.x_state + K @ y
-        
-        # P = (I - K H) P
-        self.P = (self.I - K @ self.H) @ self.P
-        
-        self.alpha = float(K[0, 0])
-        return float(self.x_state[0, 0])
+        if self.state_dim == 3:
+            self.a = self.a + (self.gamma / (self.dt**2)) * residual
+            
+        return self.x
 
     def get_residual(self, measurement: float) -> float:
-        if not np.isfinite(measurement): return 0.0
-        z = np.array([[measurement]])
-        y = z - self.H @ self.x_state
-        return float(y[0, 0])
+        return measurement - self.x
 
     def get_innovation_variance(self) -> float:
-        S_mat = self.H @ self.P @ self.H.T + self.R_mat
-        return float(S_mat[0, 0])
-    
-    def get_position(self) -> float: return float(self.x_state[0, 0])
-    def get_velocity(self) -> float: return float(self.x_state[1, 0])
-    def get_acceleration(self) -> float: 
-        return float(self.x_state[2, 0]) if self.state_dim == 3 else 0.0
+        return self.R / (1.0 - self.alpha + 1e-6)
 
-    def get_position_variance(self) -> float:
-        return float(self.P[0, 0])
-    
-    # Властивості Q/R для пайплайну
-    @property
-    def Q(self) -> float: return self.q_scalar
-    @property
-    def R(self) -> float: return self.r_scalar
+    # Гетери
+    def get_position(self): return self.x
+    def get_velocity(self): return self.v
+    def get_acceleration(self): return self.a
+    def get_position_variance(self): return self.R * self.alpha 
 
     def predict_k_steps(self, k: int) -> Tuple[np.ndarray, np.ndarray]:
         preds = np.zeros(k)
         vars_pred = np.zeros(k)
         
-        x_curr = self.x_state.copy()
-        P_curr = self.P.copy()
+        curr_x, curr_v, curr_a = self.x, self.v, self.a
         
         for i in range(k):
-            # x = A x
-            x_curr = self.A @ x_curr
-            # P = A P A' + Q
-            P_curr = self.A @ P_curr @ self.A.T + self.Q_mat
+            t = (i + 1) * self.dt
+            if self.state_dim == 2:
+                preds[i] = curr_x + curr_v * t
+            else:
+                preds[i] = curr_x + curr_v * t + 0.5 * curr_a * (t**2)
             
-            preds[i] = float(x_curr[0, 0])
-            vars_pred[i] = float(P_curr[0, 0])
-                
+            vars_pred[i] = self.R * (1 + i*0.2) 
+            
         return preds, vars_pred

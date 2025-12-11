@@ -43,18 +43,14 @@ def plot_data_preprocessing(
     
     # 2. Малюємо СИРІ дані (дрібні точки)
     ax.scatter(t_raw[mask_raw_valid], val_raw[mask_raw_valid], 
-               color=COLOR_GRAY, s=0.1, alpha=0.6, label='Сирі виміри', zorder=1)
+               color=COLOR_GRAY, s=5, alpha=0.6, label='Сирі виміри (Raw Data)', zorder=1)
     
     # 3. Малюємо РЕСЕМПЛІНГ (Крива)
     t_res = df_resampled.index
     val_res = df_resampled['r_id_raw']
     
-    ax.scatter(t_res, val_res,
-            color=COLOR_PRIMARY,
-            s=10,              # adjust size as you wish
-            alpha=0.8,
-            label='Ресемплінг (1 година)',
-            zorder=2)
+    ax.plot(t_res, val_res, '-', color=COLOR_PRIMARY, linewidth=1.5, alpha=0.8,
+            label='Ресемплінг (1 година)', zorder=2)
             
     # 4. Підсвічуємо ІМПУТОВАНІ точки
     if 'is_imputed' in df_resampled.columns:
@@ -71,6 +67,8 @@ def plot_data_preprocessing(
             pct_imp = (n_imp / n_grid) * 100
             
             stats_text = (
+                f"Статистика набору даних:\n"
+                f"------------------------\n"
                 f"Вхідні виміри: {n_raw}\n"
                 f"Регулярна сітка: {n_grid} точок\n"
                 f"Імпутовано: {n_imp} ({pct_imp:.1f}%)"
