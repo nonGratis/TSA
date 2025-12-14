@@ -47,17 +47,13 @@ def select_best_model(y: np.ndarray) -> int:
         return 2
 
 def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
-    print("=== ПАЙПЛАЙН: ALPHA-BETA ФІЛЬТРАЦІЯ (TUNED) ===")
-
-    # 1. Data
     print("[1/3] Обробка даних...")
     df_prepared = dh.prepare_timeseries(df)
     r_id = df_prepared['r_id'].values.astype(float)
     is_imputed = df_prepared['imputed'].values.astype(bool)
     n = len(r_id)
 
-    # 2. Setup
-    print("[2/3] Налаштування...")
+    print("\n[2/3] Налаштування...")
     
     state_dim = select_best_model(r_id)
     proc_q, meas_r = estimate_noise_parameters(r_id)
