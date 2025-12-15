@@ -93,8 +93,6 @@ def parse_arguments():
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
                        help='Директорія для збереження графіків')
-    parser.add_argument('--no-plots', action='store_true',
-                       help='Не зберігати графіки')
     
     return parser.parse_args()
 
@@ -152,26 +150,25 @@ def mode_filtering(df_raw, config, output_dir):
     print(f"  End (+{config['k_steps']}h): {preds[-1]:.2f} ± {1.96*stds[-1]:.2f} (95% CI)")
     
     # Visualize
-    if not config.get('no_plots'):
-        dv.plot_data_preprocessing(
-            df_raw, df_res,
-            title="Етап 0: Попередня обробка даних",
-            save_path=str(output_dir / '00_data_prep.svg')
-        )
-        
-        dv.plot_kalman_results(
-            df_res, (preds, vars_pred),
-            title=f"Етап 1: Kalman Filter (Dim={selected_dim})",
-            save_path=str(output_dir / '01_kf_results.svg')
-        )
-        
-        dv.plot_residuals_analysis(
-            df_res,
-            title="Етап 2: Діагностика залишків",
-            save_path=str(output_dir / '02_kf_diagnostics.svg')
-        )
-        
-        print(f"\n  Графіки збережено у {output_dir}")
+    dv.plot_data_preprocessing(
+        df_raw, df_res,
+        title="Етап 0: Попередня обробка даних",
+        save_path=str(output_dir / '00_data_prep.svg')
+    )
+    
+    dv.plot_kalman_results(
+        df_res, (preds, vars_pred),
+        title=f"Етап 1: Kalman Filter (Dim={selected_dim})",
+        save_path=str(output_dir / '01_kf_results.svg')
+    )
+    
+    dv.plot_residuals_analysis(
+        df_res,
+        title="Етап 2: Діагностика залишків",
+        save_path=str(output_dir / '02_kf_diagnostics.svg')
+    )
+    
+    print(f"\n  Графіки збережено у {output_dir}")
     
     return df_res, metrics_result
 
@@ -200,31 +197,29 @@ def mode_analysis(df_prepared, config, output_dir):
     print(f"    Сила тренду: {decomp_stats['trend_strength']:.3f}")
     print(f"    Сила сезонності: {decomp_stats['seasonal_strength']:.3f}")
     
-    if not config.get('no_plots'):
-        adv.plot_decomposition(
-            decomp_result,
-            title="STL Декомпозиція часового ряду",
-            save_path=str(output_dir / '03_decomposition.svg')
-        )
+    adv.plot_decomposition(
+        decomp_result,
+        title="STL Декомпозиція часового ряду",
+        save_path=str(output_dir / '03_decomposition.svg')
+    )
     
     # 2. Властивості
     print("\n[2/4] АНАЛІЗ ВЛАСТИВОСТЕЙ...")
     analyzer = prop.TimeSeriesProperties()
     props_result = analyzer.analyze_all(data_series, nlags=40)
     
-    if not config.get('no_plots'):
-        adv.plot_stationarity_tests(
-            data_series,
-            props_result['stationarity'],
-            save_path=str(output_dir / '04_stationarity.svg'),
-            window_size=config.get('cluster_window')
-        )
-        
-        adv.plot_hurst_and_acf(
-            data_series,
-            props_result,
-            save_path=str(output_dir / '05_hurst_acf.svg')
-        )
+    adv.plot_stationarity_tests(
+        data_series,
+        props_result['stationarity'],
+        save_path=str(output_dir / '04_stationarity.svg'),
+        window_size=config.get('cluster_window')
+    )
+    
+    adv.plot_hurst_and_acf(
+        data_series,
+        props_result,
+        save_path=str(output_dir / '05_hurst_acf.svg')
+    )
     
     # 3. Кластеризація
     print("\n[3/4] КЛАСТЕРИЗАЦІЯ...")
@@ -246,12 +241,11 @@ def mode_analysis(df_prepared, config, output_dir):
     )
     print(f"\n  Silhouette Score: {silhouette:.3f}")
     
-    if not config.get('no_plots'):
-        adv.plot_clustering_results(
-            data_series,
-            cluster_result,
-            save_path=str(output_dir / '06_clustering.svg')
-        )
+    adv.plot_clustering_results(
+        data_series,
+        cluster_result,
+        save_path=str(output_dir / '06_clustering.svg')
+    )
     
     # 4. Кореляційний аналіз
     print("\n[4/4] КОРЕЛЯЦІЙНИЙ АНАЛІЗ...")
@@ -342,12 +336,11 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     print("="*60 + "\n")
     
     # Візуалізація
-    if not config.get('no_plots'):
-        adv.plot_synthetic_vs_real(
-            data_series,
-            synthetic_combined,
-            save_path=str(output_dir / '07_synthetic_comparison.svg')
-        )
+    adv.plot_synthetic_vs_real(
+        data_series,
+        synthetic_combined,
+        save_path=str(output_dir / '07_synthetic_comparison.svg')
+    )
     
     # Зберігаємо синтетичні дані
     synth_df = pd.DataFrame({
