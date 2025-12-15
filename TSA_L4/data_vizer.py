@@ -49,8 +49,25 @@ def plot_data_preprocessing(
     t_res = df_resampled.index
     val_res = df_resampled['r_id_raw']
     
+    # Визначаємо частоту з індексу
+    if len(t_res) > 1:
+        freq = pd.infer_freq(t_res)
+        if freq:
+            freq_label = f"({freq})"
+        else:
+            # Обчислюємо середній інтервал
+            avg_delta = (t_res[-1] - t_res[0]) / (len(t_res) - 1)
+            if avg_delta < pd.Timedelta(hours=1):
+                freq_label = f"(~{int(avg_delta.total_seconds() / 60)} хв)"
+            elif avg_delta < pd.Timedelta(days=1):
+                freq_label = f"(~{int(avg_delta.total_seconds() / 3600)} год)"
+            else:
+                freq_label = f"(~{int(avg_delta.total_seconds() / 86400)} дн)"
+    else:
+        freq_label = ""
+    
     ax.plot(t_res, val_res, '-', color=COLOR_PRIMARY, linewidth=1.5, alpha=0.8,
-            label='Ресемплінг (1 година)', zorder=2)
+            label=f'Регулярна сітка {freq_label}', zorder=2)
             
     # 4. Підсвічуємо ІМПУТОВАНІ точки
     if 'is_imputed' in df_resampled.columns:
@@ -84,7 +101,7 @@ def plot_data_preprocessing(
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.xticks(rotation=0)
 
-    ax.set_xlabel('Час (UTC)', fontsize=12, fontweight='bold')
+    ax.set_xlabel('Позначка часу', fontsize=12, fontweight='bold')
     ax.set_ylabel('Значення лічильника', fontsize=12, fontweight='bold')
     ax.set_title(title, fontsize=14, fontweight='bold')
     ax.legend(loc='lower right', fontsize=10)
