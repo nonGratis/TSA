@@ -1,15 +1,15 @@
 import numpy as np
 import pandas as pd
 
-def check_timestamp(df: pd.DataFrame, col: str = 'timestamp', fmt: str = '%d.%m.%Y %H:%M:%S') -> pd.DataFrame:
+def check_timestamp(df: pd.DataFrame, col: str = 'timestamp') -> pd.DataFrame:
+    """Parse timestamps with automatic format detection."""
     if col not in df.columns:
         raise KeyError(f"Відсутня обов'язкова колонка '{col}'")
     
     if not pd.api.types.is_datetime64_any_dtype(df[col]):
-        df[col] = pd.to_datetime(df[col], format=fmt, errors='coerce')
+        df[col] = pd.to_datetime(df[col], errors='coerce')
         
-    bad_mask = df[col].isna()
-    bad_count = bad_mask.sum()
+    bad_count = df[col].isna().sum()
     if bad_count > 0:
         print(f"  Увага: Видалено {bad_count} рядків з некоректним форматом часу.")
         df = df.dropna(subset=[col])
@@ -17,77 +17,83 @@ def check_timestamp(df: pd.DataFrame, col: str = 'timestamp', fmt: str = '%d.%m.
 
 def _detect_anomalies_cumulative(s: pd.Series) -> pd.Series:
     """Виявляємо падіння лічильника (negative diff)."""
-    diffs = s.diff().fillna(0.0).astype(float)
-    mask_drop: pd.Series = diffs < -1e-6
+    diffs = s.diff().fillna(0.0)
+    mask_drop = diffs < -1e-6
     if mask_drop.any():
-        print(f"  Увага: Знайдено {mask_drop.sum()} точок, де лічильник впав (скидання?).")
+        print(f"  Увага: Знайдено {mask_drop.sum()} точок, де лічильник впав.")
     return mask_drop
 
 def prepare_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     """
-    1. Дедуплікація (keep='last') для секунд з кількома подіями.
-    2. Розширення сітки до floor('h') для початку від 0
-    3. Time-weighted інтерполяція.
+    Supports both cumulative and non-cumulative data formats.
     """
-    df = check_timestamp(df)
-    df = df.set_index('timestamp').sort_index()
+    df = df.copy()
+    df.columns = df.columns.str.strip()
     
-    # Статистика ДО 
-    raw_count = len(df)
-    raw_start = df.index.min()
-    raw_end = df.index.max()
-
-    duplicates = df.index.duplicated(keep='last')
-    n_dupes = duplicates.sum()
-    if n_dupes > 0:
-        print(f"  Увага: Високочастотні події: {n_dupes} секунд мали кілька оновлень. Зберігання останнього стану для кожного.")
-        df = df[~duplicates]
-
-    # Очистка r_id
-    col = df.get('r_id')
-    if col is None:
-        df['r_id'] = np.nan
+    # Detect data type
+    if 'r_id' in df.columns:
+        value_col, data_type, freq = 'r_id', 'cumulative', '1h'
+    elif 'Subs' in df.columns:
+        value_col, data_type, freq = 'Subs', 'non-cumulative', '1D'
     else:
-        df['r_id'] = pd.to_numeric(col, errors='coerce')
+        value_col, data_type, freq = 'r_id', 'cumulative', '1h'
     
-    df = df.dropna(subset=['r_id'])
+    print(f"  Тип даних: {data_type}, частота: {freq}")
+    
+    # Clean value column - remove all whitespace
+    if df[value_col].dtype == 'object':
+        df[value_col] = df[value_col].astype(str).str.replace(r'\s+', '', regex=True)
+    df[value_col] = pd.to_numeric(df[value_col], errors='coerce')
+    
+    df = df.dropna(subset=[value_col])
+    df = check_timestamp(df)
     
     if df.empty:
-        raise ValueError("Дані порожні! Перевірте файл.")
+        raise ValueError("Дані порожні після очищення!")
+    
+    df = df.set_index('timestamp').sort_index()
+    
+    # Statistics
+    raw_count = len(df)
+    raw_start, raw_end = df.index.min(), df.index.max()
 
-    start_dt = df.index.min().floor('h')
-    end_dt = df.index.max().ceil('h')
+    # Create regular grid
+    floor_freq = 'h' if freq == '1h' else 'D'
+    start_dt = df.index.min().floor(floor_freq)
+    end_dt = df.index.max().ceil(floor_freq)
+    regular_grid = pd.date_range(start=start_dt, end=end_dt, freq=freq)
     
-    regular_grid = pd.date_range(start=start_dt, end=end_dt, freq='1h')
-    
+    # Interpolate
     combined_index = df.index.union(regular_grid).unique().sort_values()
-    s_combined = df['r_id'].reindex(combined_index)
-    
-    # limit_direction='both' дозволить заповнити 19:00 значенням з 19:32 (backward fill для старту)
+    s_combined = df[value_col].reindex(combined_index)
     s_interpolated = s_combined.interpolate(method='time', limit_direction='both')
     s_resampled = s_interpolated.reindex(regular_grid)
     
+    # Track imputed values
     nearest_idx = df.index.get_indexer(regular_grid, method='nearest')
     nearest_timestamps = df.index[nearest_idx]
     time_diffs = np.abs(regular_grid - nearest_timestamps)
-    imputed_mask = time_diffs > pd.Timedelta(minutes=90)
-    s_filled = s_resampled.ffill().bfill() # Гарантія відсутності NaN
+    threshold = pd.Timedelta(days=2) if freq == '1D' else pd.Timedelta(minutes=90)
+    imputed_mask = time_diffs > threshold
     
-    anomaly_mask = _detect_anomalies_cumulative(s_filled)
-    if anomaly_mask.any():
-        s_filled.loc[anomaly_mask] = np.nan
-        s_filled = s_filled.ffill()
-        imputed_mask = imputed_mask | anomaly_mask
+    s_filled = s_resampled.ffill().bfill()
+    
+    # Check for cumulative anomalies only if cumulative data
+    if data_type == 'cumulative':
+        anomaly_mask = _detect_anomalies_cumulative(s_filled)
+        if anomaly_mask.any():
+            s_filled.loc[anomaly_mask] = np.nan
+            s_filled = s_filled.ffill()
+            imputed_mask = imputed_mask | anomaly_mask
 
     res_count = len(s_filled)
-    res_start = s_filled.index.min()
-    res_end = s_filled.index.max()
+    res_start, res_end = s_filled.index.min(), s_filled.index.max()
 
     print(f"  {'Етап':<15} | {'К-сть':<8} | {'Початок':<19} | {'Кінець':<19}")
     print(f"  {'-'*15}-+-{'-'*8}-+-{'-'*19}-+-{'-'*19}")
-    print(f"  {'Вхідні (Сирі)':<15} | {raw_count:<8} | {str(raw_start):<19} | {str(raw_end):<19}")
-    print(f"  {'Оброблені (1h)':<15} | {res_count:<8} | {str(res_start):<19} | {str(res_end):<19}")
-    print(f"  Всього імпутованих точок: {imputed_mask.sum()} з {res_count} ({100.0 * imputed_mask.sum() / res_count:.2f}%)")
+    print(f"  {'Вхідні':<15} | {raw_count:<8} | {str(raw_start):<19} | {str(raw_end):<19}")
+    print(f"  {'Оброблені':<15} | {res_count:<8} | {str(res_start):<19} | {str(res_end):<19}")
+    print(f"  Імпутовано: {imputed_mask.sum()} ({100.0 * imputed_mask.sum() / res_count:.1f}%)")
     
     return pd.DataFrame({
         'r_id': s_filled.astype(float),
