@@ -296,9 +296,14 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
         props_result = analysis_result['properties']
         decomp_result = analysis_result['decomposition']
     
-    # Генеруємо синтетичні дані
+    # Генеруємо синтетичні дані з довжиною як у реальних даних (якщо не вказано інше)
+    synth_length = config.get('synthetic_length')
+    if synth_length is None:
+        synth_length = len(data_series)
+        print(f"\n  [INFO] Використовується довжина реальних даних: {synth_length}")
+    
     generator = synth.SyntheticTimeSeriesGenerator(
-        length=config.get('synthetic_length', 1000),
+        length=synth_length,
         random_state=config.get('synthetic_seed', 42)
     )
     

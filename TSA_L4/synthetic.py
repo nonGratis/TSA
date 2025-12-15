@@ -272,9 +272,9 @@ class SyntheticTimeSeriesGenerator:
         seasonal_component = decomposition_result['seasonal'].values
         
         # Параметри тренду (апроксимація поліномом 2-го степеня)
-        t = np.arange(len(trend_component))
+        t_real = np.arange(len(trend_component))
         valid_mask = np.isfinite(trend_component)
-        trend_coeffs = np.polyfit(t[valid_mask], trend_component[valid_mask], 2)
+        trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], 2)
         
         print(f"  Тренд: поліном 2-го степеня")
         print(f"    Коефіцієнти: {trend_coeffs}")
@@ -303,8 +303,12 @@ class SyntheticTimeSeriesGenerator:
         
         print(f"  Шум: Hurst = {hurst_val:.3f}, σ = {noise_std:.3f}")
         
-        # Генеруємо синтетичні дані
-        synthetic_trend = np.polyval(trend_coeffs, t)
+        # Генеруємо синтетичні дані з правильною довжиною
+        t_synthetic = np.arange(self.length)
+        
+        # Масштабуємо t для тренду (нормалізуємо до діапазону реальних даних)
+        t_scaled = t_synthetic * (len(trend_component) / self.length)
+        synthetic_trend = np.polyval(trend_coeffs, t_scaled)
         
         synthetic_seasonal = self.generate_seasonality(
             periods[:3], 
