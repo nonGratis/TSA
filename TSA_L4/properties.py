@@ -214,42 +214,17 @@ class TimeSeriesProperties:
         Returns:
             Словник з усіма результатами
         """
-        print("\n=== АНАЛІЗ ВЛАСТИВОСТЕЙ ЧАСОВОГО РЯДУ ===\n")
-        
-        # Стаціонарність
-        print("[1/3] Тестування стаціонарності...")
         stationarity = self.test_stationarity(data)
-        
-        print(f"  ADF тест: p-value = {stationarity['adf']['p_value']:.4f}")
-        print(f"  → Ряд {'СТАЦІОНАРНИЙ' if stationarity['adf']['is_stationary'] else 'НЕ стаціонарний'} (ADF)")
-        
-        if 'error' not in stationarity['kpss']:
-            print(f"  KPSS тест: p-value = {stationarity['kpss']['p_value']:.4f}")
-            print(f"  → Ряд {'СТАЦІОНАРНИЙ' if stationarity['kpss']['is_stationary'] else 'НЕ стаціонарний'} (KPSS)")
-        
-        print(f"\n  Висновок: {stationarity['conclusion'].upper()}")
-        
-        # Hurst
-        print("\n[2/3] Фрактальний аналіз (Hurst exponent)...")
         hurst = self.calculate_hurst_exponent(data)
-        
-        if hurst['hurst'] is not None:
-            print(f"  H = {hurst['hurst']:.4f}")
-            print(f"  → {hurst['description']}")
-        else:
-            print(f"  Помилка: {hurst.get('error', 'Unknown')}")
-        
-        # ACF/PACF
-        print("\n[3/3] Автокореляційний аналіз...")
         autocorr = self.calculate_autocorrelation(data, nlags)
         
-        print(f"  Значущих ACF лагів: {autocorr['n_significant_acf']}")
-        print(f"  Значущих PACF лагів: {autocorr['n_significant_pacf']}")
-        
-        if autocorr['n_significant_acf'] > 0:
-            print(f"  Перші 5 значущих ACF лагів: {autocorr['significant_acf_lags'][:5]}")
-        
-        print("\n" + "="*50 + "\n")
+        h_val = hurst['hurst'] if hurst['hurst'] is not None else 0.5
+        stat_ua = {'stationary': 'стаціонарний', 'non_stationary': 'нестаціонарний', 'difference_stationary': 'різницево-стаціонарний', 'trend_stationary': 'тренд-стаціонарний'}[stationarity['conclusion']]
+        print(f"\n[ВЛАСТИВОСТІ РЯДУ]")
+        print(f"  Стаціонарність:   {stat_ua}")
+        print(f"  Hurst (H):        {h_val:.4f}")
+        print(f"  Значущі ACF:      {autocorr['n_significant_acf']}")
+        print(f"  Значущі PACF:     {autocorr['n_significant_pacf']}")
         
         return {
             'stationarity': stationarity,

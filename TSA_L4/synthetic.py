@@ -265,8 +265,6 @@ class SyntheticTimeSeriesGenerator:
         Returns:
             (synthetic_series, info_dict)
         """
-        print("\n=== ГЕНЕРАЦІЯ СИНТЕТИЧНИХ ДАНИХ ===\n")
-        
         # Витягуємо властивості
         trend_component = decomposition_result['trend'].values
         seasonal_component = decomposition_result['seasonal'].values
@@ -275,9 +273,6 @@ class SyntheticTimeSeriesGenerator:
         t_real = np.arange(len(trend_component))
         valid_mask = np.isfinite(trend_component)
         trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], 2)
-        
-        print(f"  Тренд: поліном 2-го степеня")
-        print(f"    Коефіцієнти: {trend_coeffs}")
         
         # Параметри сезонності (FFT для виділення головних частот)
         from scipy.fft import fft, fftfreq
@@ -293,15 +288,9 @@ class SyntheticTimeSeriesGenerator:
         periods = [int(1 / abs(freqs[i])) for i in idx if freqs[i] != 0]
         amplitudes = [power[i] / len(seasonal_clean) * 2 for i in idx]
         
-        print(f"  Сезонність: {len(periods)} домінуючих періодів")
-        print(f"    Періоди: {periods[:3]}")
-        print(f"    Амплітуди: {[f'{a:.2f}' for a in amplitudes[:3]]}")
-        
         # Параметри шуму
         hurst_val = properties['hurst'].get('hurst', 0.5)
         noise_std = np.std(decomposition_result['resid'].dropna())
-        
-        print(f"  Шум: Hurst = {hurst_val:.3f}, σ = {noise_std:.3f}")
         
         # Генеруємо синтетичні дані з правильною довжиною
         t_synthetic = np.arange(self.length)
@@ -322,8 +311,11 @@ class SyntheticTimeSeriesGenerator:
         
         synthetic_combined = synthetic_trend + synthetic_seasonal + synthetic_noise
         
-        print(f"\n  Згенеровано {self.length} точок")
-        print("="*50 + "\n")
+        print(f"\n[СИНТЕТИЧНІ ДАНІ]")
+        print(f"  Довжина:      {self.length} точок")
+        print(f"  Тренд:        поліном 2-го степеня")
+        print(f"  Сезонність:   {len(periods[:3])} періоди")
+        print(f"  Шум:          H={hurst_val:.2f}, σ={noise_std:.1f}")
         
         return synthetic_combined, {
             'trend': synthetic_trend,

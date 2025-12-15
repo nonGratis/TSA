@@ -151,14 +151,10 @@ def evaluate_filter_performance(
         metrics['acf_lag1'] = 0.0
     
     if verbose:
-        print("\nМЕТРИКИ ЯКОСТІ ФІЛЬТРАЦІЇ")
-        print(f"RMSE:                  {metrics['rmse']:.4f}")
-        print(f"MAE:                   {metrics['mae']:.4f}")
-        print(f"R²:                    {metrics['r2']:.4f}")
-        print(f"Bias (середнє залишків): {metrics['bias']:.4f}")
-        print(f"% розбіжності:         {metrics['percent_divergence']:.2f}%")
-        print(f"Std залишків:          {metrics['residual_std']:.4f}")
-        print(f"ACF(1):                {metrics['acf_lag1']:.4f}")
+        print(f"\n[МЕТРИКИ ЯКОСТІ]")
+        print(f"  Точність:  RMSE={metrics['rmse']:.2f}  MAE={metrics['mae']:.2f}  R²={metrics['r2']:.4f}")
+        print(f"  Похибки:   Зміщ.={metrics['bias']:.2f}  Дивер.={metrics['percent_divergence']:.2f}%")
+        print(f"  Залишки:   σ={metrics['residual_std']:.1f}  ACF(1)={metrics['acf_lag1']:.3f}")
     
     return metrics
 

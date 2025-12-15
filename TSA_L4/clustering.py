@@ -142,17 +142,13 @@ class TimeSeriesClusterer:
         Returns:
             Словник з результатами кластеризації
         """
-        print(f"\n=== КЛАСТЕРИЗАЦІЯ ({self.method.upper()}) ===\n")
-        
         # Підготовка ознак
         if feature_type == 'statistical':
             features = self.prepare_statistical_features(data, window_size)
-            print(f"  Використано статистичні ознаки (9 ознак)")
+            feat_desc = 'stat-9'
         else:
             features = self.prepare_features(data, window_size)
-            print(f"  Використано сирі вікна (розмір {window_size})")
-        
-        print(f"  Кількість вікон: {len(features)}")
+            feat_desc = f'raw-{window_size}'
         
         # Кластеризація
         if self.method == 'kmeans':
@@ -177,11 +173,14 @@ class TimeSeriesClusterer:
                 'percentage': float(mask.sum() / len(labels) * 100)
             }
         
-        print(f"\n  Знайдено кластерів: {len(cluster_stats)}")
-        for label, stats in cluster_stats.items():
-            print(f"    Кластер {label}: {stats['size']} вікон ({stats['percentage']:.1f}%)")
-        
-        print("\n" + "="*50 + "\n")
+        cluster_sizes = [f"#{i}: {stats['size']} ({stats['percentage']:.0f}%)" for i, stats in cluster_stats.items()]
+        print(f"\n[КЛАСТЕРИЗАЦІЯ]")
+        print(f"  Метод:      {self.method}")
+        print(f"  Ознаки:     {feat_desc}")
+        print(f"  Вікон:      {len(features)}")
+        print(f"  Кластерів:  {len(cluster_stats)}")
+        for size_info in cluster_sizes:
+            print(f"    {size_info}")
         
         return {
             'labels': labels,

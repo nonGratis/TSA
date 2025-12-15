@@ -21,18 +21,17 @@ def estimate_initial_velocity(y: np.ndarray) -> float:
     diffs = np.diff(subset)
     return float(np.median(diffs))
 
-def select_best_model(y: np.ndarray) -> int:
-    """Вибір моделі: CV (2) або CA (3)."""
+def select_best_model(y: np.ndarray) -> tuple[int, str]:
+    """Вибір моделі: CV (2) або CA (3). Повертає (dim, причина)."""
     y_clean = y[np.isfinite(y)]
-    if len(y_clean) < 10: return 2
+    if len(y_clean) < 10: return 2, 'default'
     
     diffs = np.diff(y_clean)
     
     # Якщо процес переважно монотонний (мало падінь), це CV
     negative_diffs = np.sum(diffs < 0)
     if negative_diffs < 0.05 * len(diffs):
-        print(f"  [AUTO] Монотонний процес -> CV (dim=2)")
-        return 2
+        return 2, 'monotonic'
         
     # Якщо динаміка складна
     accel = np.diff(diffs)
@@ -40,22 +39,22 @@ def select_best_model(y: np.ndarray) -> int:
     var_a = np.var(accel)
     
     if var_a > 10 * var_v:
-        print(f"  [AUTO] Висока динаміка -> CA (dim=3)")
-        return 3
+        return 3, 'high-dynamic'
     else:
-        print(f"  [AUTO] Стандартна динаміка -> CV (dim=2)")
-        return 2
+        return 2, 'standard'
 
-def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
-    print("[1/3] Обробка даних...")
-    df_prepared = dh.prepare_timeseries(df)
+def run_pipeline(df_prepared: pd.DataFrame, config: Dict) -> pd.DataFrame:
+    """Виконує фільтрацію на вже підготовлених даних.
+    
+    Args:
+        df_prepared: DataFrame після prepare_timeseries() з колонками 'r_id' та 'imputed'
+        config: Dict з параметрами фільтрації
+    """
     r_id = df_prepared['r_id'].values.astype(float)
     is_imputed = df_prepared['imputed'].values.astype(bool)
     n = len(r_id)
-
-    print("\n[2/3] Налаштування...")
     
-    state_dim = select_best_model(r_id)
+    state_dim, reason = select_best_model(r_id)
     proc_q, meas_r = estimate_noise_parameters(r_id)
     
     # Краща ініціалізація швидкості
@@ -70,22 +69,21 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         init_state=init_state
     )
     
-    # АКАДЕМІЧНЕ ОБҐРУНТУВАННЯ
+    # Таблиця налаштувань
     lam_calc = (ab_filter.Q / ab_filter.R) * (ab_filter.dt ** 2)
-    print(f"\nПАРАМЕТРИ ФІЛЬТРА:")
-    print(f"     Модель: {'CV (Constant Velocity)' if state_dim == 2 else 'CA (Constant Acceleration)'}")
-    print(f"     Lambda (λ):  {lam_calc:.4f} (Tracking Index)")
-    print(f"     Alpha (α):   {ab_filter.alpha:.4f}")
-    print(f"     Beta (β):    {ab_filter.beta:.4f}")
-    print(f"     Process Q:   {ab_filter.Q:.4f}")
-    print(f"     Measure R:   {ab_filter.R:.4f}\n")
-    print(f"  • Ініціалізація стану: x0={ab_filter.x:.4f}, v0={ab_filter.v:.4f}, a0={ab_filter.a:.4f}")
+    model_name = 'CV' if state_dim == 2 else 'CA'
+    reason_ua = {'standard': 'стандарт', 'monotonic': 'монотон', 'high-dynamic': 'висока-дин', 'default': 'дефолт'}[reason]
+    print(f"\n[НАЛАШТУВАННЯ ФІЛЬТРА]")
+    print(f"  Модель:  {model_name} ({reason_ua})")
+    print(f"  Параметри: λ={lam_calc:.4f}  α={ab_filter.alpha:.4f}  β={ab_filter.beta:.4f}")
+    print(f"  Шуми:      Q={ab_filter.Q:.1f}  R={ab_filter.R:.1f}")
+    print(f"  Початок:   x₀={ab_filter.x:.1f}  v₀={ab_filter.v:.2f}")
     
     adapter = NISAdapter(scale_factor=1.5, decay_factor=0.8) if config.get('adaptive', True) else None
     imputed_mode = config.get('imputed_update_mode', 'skip')
     
-    # 3. Loop
-    print("\n[3/3] Фільтрація...")
+    # Loop
+    print(f"[ФІЛЬТР] Обробка {n} точок...")
     
     kf_x = np.zeros(n)
     kf_v = np.zeros(n)
@@ -134,11 +132,6 @@ def run_pipeline(df: pd.DataFrame, config: Dict) -> pd.DataFrame:
         kf_x[i] = ab_filter.x
         kf_v[i] = ab_filter.v
         alpha_log[i] = ab_filter.alpha
-        
-    # Stats
-    valid_res = residuals[~np.isnan(residuals)]
-    mean_bias = np.mean(valid_res) if len(valid_res) > 0 else 0.0
-    print(f"  • Діагностика: Bias = {mean_bias:.4f}")
     
     attrs = {'model_dim': state_dim}
     

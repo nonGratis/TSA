@@ -97,14 +97,17 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def mode_filtering(df_raw, config, output_dir):
-    """Режим: Тільки фільтрація (ЛР1-3)."""
-    print("\n" + "="*60)
-    print("РЕЖИМ: KALMAN ФІЛЬТРАЦІЯ")
-    print("="*60)
+def mode_filtering(df_raw, df_prepared, config, output_dir):   
+    """Режим фільтрації.
     
+    Args:
+        df_raw: Сирі дані для візуалізації препроцесингу
+        df_prepared: Підготовлені дані після prepare_timeseries()
+        config: Конфігурація
+        output_dir: Директорія для збереження
+    """
     # Pipeline фільтрації
-    df_res = pl.run_pipeline(df_raw, config)
+    df_res = pl.run_pipeline(df_prepared, config)
     
     selected_dim = df_res.attrs.get('model_dim', 2)
     
@@ -121,7 +124,7 @@ def mode_filtering(df_raw, config, output_dir):
         metrics_result = {}
     
     # Prediction
-    print(f"\nПрогноз {config['k_steps']} кроків...")
+    print(f"\n[ПРОГНОЗ НА {config['k_steps']} КРОКІВ]")
     
     last_alpha = float(df_res['alpha'].iloc[-1]) if 'alpha' in df_res else 0.1
     last_x = float(df_res['kf_x'].iloc[-1])
@@ -146,8 +149,8 @@ def mode_filtering(df_raw, config, output_dir):
     preds, vars_pred = pred_filter.predict_k_steps(config['k_steps'])
     stds = np.sqrt(vars_pred)
     
-    print(f"  Next (+1h): {preds[0]:.2f}")
-    print(f"  End (+{config['k_steps']}h): {preds[-1]:.2f} ± {1.96*stds[-1]:.2f} (95% CI)")
+    print(f"  +1 крок:        {preds[0]:.2f}")
+    print(f"  +{config['k_steps']} кроків:     {preds[-1]:.2f} ± {1.96*stds[-1]:.2f} (95% ДІ)")
     
     # Visualize
     dv.plot_data_preprocessing(
@@ -167,22 +170,14 @@ def mode_filtering(df_raw, config, output_dir):
         title="Етап 2: Діагностика залишків",
         save_path=str(output_dir / '02_kf_diagnostics.svg')
     )
-    
-    print(f"\n  Графіки збережено у {output_dir}")
-    
+        
     return df_res, metrics_result
 
 
 def mode_analysis(df_prepared, config, output_dir):
-    """Режим: Поглиблений аналіз (ЛР4)."""
-    print("\n" + "="*60)
-    print("РЕЖИМ: ПОГЛИБЛЕНИЙ АНАЛІЗ")
-    print("="*60)
-    
     data_series = df_prepared['r_id']
     
     # 1. Декомпозиція
-    print("\n[1/4] ДЕКОМПОЗИЦІЯ...")
     decomposer = dec.TimeSeriesDecomposer(
         period=config.get('decomp_period'),
         seasonal=config.get('decomp_seasonal', 7),
@@ -192,10 +187,10 @@ def mode_analysis(df_prepared, config, output_dir):
     decomp_result = decomposer.decompose(data_series)
     decomp_stats = decomposer.get_statistics()
     
-    print(f"\n  Статистика декомпозиції:")
-    print(f"    Період: {decomp_stats['period']}")
-    print(f"    Сила тренду: {decomp_stats['trend_strength']:.3f}")
-    print(f"    Сила сезонності: {decomp_stats['seasonal_strength']:.3f}")
+    print(f"\n[ДЕКОМПОЗИЦІЯ РЯДУ]")
+    print(f"  Період:           {decomp_stats['period']}")
+    print(f"  Сила тренду:      {decomp_stats['trend_strength']:.3f}")
+    print(f"  Сила сезонності:  {decomp_stats['seasonal_strength']:.3f}")
     
     adv.plot_decomposition(
         decomp_result,
@@ -204,7 +199,6 @@ def mode_analysis(df_prepared, config, output_dir):
     )
     
     # 2. Властивості
-    print("\n[2/4] АНАЛІЗ ВЛАСТИВОСТЕЙ...")
     analyzer = prop.TimeSeriesProperties()
     props_result = analyzer.analyze_all(data_series, nlags=40)
     
@@ -222,7 +216,6 @@ def mode_analysis(df_prepared, config, output_dir):
     )
     
     # 3. Кластеризація
-    print("\n[3/4] КЛАСТЕРИЗАЦІЯ...")
     clusterer = clust.TimeSeriesClusterer(
         method=config.get('cluster_method', 'kmeans'),
         n_clusters=config.get('n_clusters', 3)
@@ -234,12 +227,11 @@ def mode_analysis(df_prepared, config, output_dir):
         feature_type=config.get('cluster_features', 'statistical')
     )
     
-    # Silhouette score
     silhouette = clusterer.calculate_silhouette_score(
         cluster_result['features'],
         cluster_result['labels']
     )
-    print(f"\n  Silhouette Score: {silhouette:.3f}")
+    print(f"  Якість (silhouette): {silhouette:.3f}")
     
     adv.plot_clustering_results(
         data_series,
@@ -248,9 +240,6 @@ def mode_analysis(df_prepared, config, output_dir):
     )
     
     # 4. Кореляційний аналіз
-    print("\n[4/4] КОРЕЛЯЦІЙНИЙ АНАЛІЗ...")
-    
-    # Матриця кореляцій між компонентами
     components_df = pd.DataFrame({
         'original': decomp_result['observed'].values,
         'trend': decomp_result['trend'].values,
@@ -259,8 +248,10 @@ def mode_analysis(df_prepared, config, output_dir):
     })
     
     corr_matrix = components_df.corr()
-    print("\n  Кореляційна матриця компонентів:")
-    print(corr_matrix.round(3))
+    print(f"\n[КОРЕЛЯЦІЇ КОМПОНЕНТІВ]")
+    print(f"  Тренд ↔ Оригінал:     {corr_matrix.loc['trend', 'original']:.3f}")
+    print(f"  Сезон ↔ Оригінал:     {corr_matrix.loc['seasonal', 'original']:.3f}")
+    print(f"  Залишки ↔ Сезон:      {corr_matrix.loc['resid', 'seasonal']:.3f}")
     
     return {
         'decomposition': decomp_result,
@@ -272,11 +263,6 @@ def mode_analysis(df_prepared, config, output_dir):
 
 
 def mode_synthetic(df_prepared, analysis_result, config, output_dir):
-    """Режим: Генерація синтетичних даних."""
-    print("\n" + "="*60)
-    print("РЕЖИМ: ГЕНЕРАЦІЯ СИНТЕТИЧНИХ ДАНИХ")
-    print("="*60)
-    
     data_series = df_prepared['r_id']
     
     if analysis_result is None:
@@ -308,32 +294,19 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     )
     
     # Порівняльний аналіз
-    print("\n=== ПОРІВНЯННЯ ВЛАСТИВОСТЕЙ ===\n")
-    
-    # Створюємо Series для синтетичних даних
     synthetic_series = pd.Series(synthetic_combined)
-    
-    # Аналіз синтетичних
-    print("Аналіз синтетичних даних:")
     synth_analyzer = prop.TimeSeriesProperties()
     synth_props = synth_analyzer.analyze_all(synthetic_series, nlags=40)
-    
-    # Порівняння
-    print("\n" + "="*50)
-    print("ПОРІВНЯЛЬНА ТАБЛИЦЯ:")
-    print("="*50)
     
     real_h = props_result['hurst'].get('hurst', np.nan)
     synth_h = synth_props['hurst'].get('hurst', np.nan)
     
-    print(f"{'Метрика':<25} | {'Реальні':<15} | {'Синтетичні':<15}")
-    print("-"*60)
-    print(f"{'Hurst exponent':<25} | {real_h:<15.4f} | {synth_h:<15.4f}")
-    print(f"{'Стаціонарність (ADF)':<25} | {props_result['stationarity']['conclusion']:<15} | {synth_props['stationarity']['conclusion']:<15}")
-    print(f"{'Середнє':<25} | {data_series.mean():<15.2f} | {synthetic_series.mean():<15.2f}")
-    print(f"{'Std':<25} | {data_series.std():<15.2f} | {synthetic_series.std():<15.2f}")
-    print(f"{'Значущих ACF лагів':<25} | {props_result['autocorrelation']['n_significant_acf']:<15} | {synth_props['autocorrelation']['n_significant_acf']:<15}")
-    print("="*60 + "\n")
+    print(f"\n[ПОРІВНЯННЯ: РЕАЛЬНІ vs СИНТЕТИЧНІ]")
+    print(f"  Параметр      Реальні      Синтетичні")
+    print(f"  {'─'*42}")
+    print(f"  Hurst (H)     {real_h:<12.3f} {synth_h:<12.3f}")
+    print(f"  Середнє (μ)   {data_series.mean():<12.1f} {synthetic_series.mean():<12.1f}")
+    print(f"  Std (σ)       {data_series.std():<12.1f} {synthetic_series.std():<12.1f}")
     
     # Візуалізація
     adv.plot_synthetic_vs_real(
@@ -352,7 +325,6 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     
     synth_path = output_dir / 'synthetic_data.csv'
     synth_df.to_csv(synth_path, index=False)
-    print(f"  Синтетичні дані збережено: {synth_path}")
     
     return synthetic_info, synth_props
 
@@ -360,25 +332,20 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
 def main():
     args = parse_arguments()
     config = vars(args)
-    
-    print("\n" + "="*60)
-    print("TIME SERIES ANALYSIS TOOLKIT")
-    print("Alpha-Beta Filtering + Advanced Analysis")
-    print("="*60)
-    
+
     # Завантаження даних
     try:
         if args.file:
-            print(f"\nЗавантаження з файлу: {args.file}")
             df_raw = pd.read_csv(args.file)
+            source = args.file
         else:
-            print(f"\nЗавантаження з URL: {args.url}")
             df_raw = dl.fetch_data(args.url)
+            source = args.url
         
         if df_raw is None:
             raise ValueError("Не вдалося завантажити дані")
         
-        print(f"  Завантажено {len(df_raw)} рядків")
+        print(f"[ЗАВАНТ.] {source} → {len(df_raw)} рядків")
         
         # Підготовка даних
         print("\n[PREP] Обробка даних...")
@@ -390,7 +357,7 @@ def main():
         
         # Виконання відповідно до режиму
         if args.mode == 'filtering':
-            mode_filtering(df_raw, config, output_dir)
+            mode_filtering(df_raw, df_prepared, config, output_dir)
             
         elif args.mode == 'analysis':
             mode_analysis(df_prepared, config, output_dir)
@@ -399,14 +366,9 @@ def main():
             analysis_result = mode_analysis(df_prepared, config, output_dir)
             mode_synthetic(df_prepared, analysis_result, config, output_dir)
             
-        elif args.mode == 'full':
-            # Повний цикл: фільтрація → аналіз → синтетичні
-            print("\n" + "="*60)
-            print("ПОВНИЙ ЦИКЛ АНАЛІЗУ")
-            print("="*60)
-            
+        elif args.mode == 'full':            
             # 1. Фільтрація
-            df_filtered, metrics_result = mode_filtering(df_raw, config, output_dir)
+            df_filtered, metrics_result = mode_filtering(df_raw, df_prepared, config, output_dir)
             
             # 2. Аналіз
             analysis_result = mode_analysis(df_prepared, config, output_dir)
@@ -415,13 +377,7 @@ def main():
             synthetic_info, synth_props = mode_synthetic(
                 df_prepared, analysis_result, config, output_dir
             )
-            
-            print("\n" + "="*60)
-            print("ПОВНИЙ ЦИКЛ ЗАВЕРШЕНО")
-            print("="*60)
-        
-        print(f"\n✓ Успішно завершено. Результати у {output_dir}")
-        
+                
     except Exception as e:
         import traceback
         print("\n" + "="*60)
