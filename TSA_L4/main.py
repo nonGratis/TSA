@@ -52,10 +52,6 @@ def parse_arguments():
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
                        help='Розмірність фільтра (2=CV, 3=CA). Авто якщо не вказано')
-    parser.add_argument('--process-noise', type=float, default=None,
-                       help='Process noise Q')
-    parser.add_argument('--measurement-noise', type=float, default=None,
-                       help='Measurement noise R')
     parser.add_argument('--adaptive', action='store_true', default=True,
                        help='Увімкнути NIS адаптацію Q')
     parser.add_argument('--no-adaptive', dest='adaptive', action='store_false')
@@ -133,7 +129,7 @@ def mode_filtering(df_raw, df_prepared, config, output_dir):
         init_state.append(float(df_res['kf_a'].iloc[-1]))
     
     est_std = metrics_result.get('residual_std', 1.0)
-    pred_r = float(config['measurement_noise']) if config['measurement_noise'] else float(est_std**2)
+    pred_r = float(est_std**2)
     if pred_r <= 0:
         pred_r = 1.0
     
