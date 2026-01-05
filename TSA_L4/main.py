@@ -11,12 +11,10 @@ import pipeline as pl
 import metrics as mt
 from kalman import AlphaBetaFilter
 
-# Нові модулі
 import decomposition as dec
 import properties as prop
 import clustering as clust
 import synthetic as synth
-import advanced_vizer as adv
 
 
 def parse_arguments():
@@ -192,7 +190,7 @@ def mode_analysis(df_prepared, config, output_dir):
     print(f"  Сила тренду:      {decomp_stats['trend_strength']:.3f}")
     print(f"  Сила сезонності:  {decomp_stats['seasonal_strength']:.3f}")
     
-    adv.plot_decomposition(
+    dv.plot_decomposition(
         decomp_result,
         title="STL Декомпозиція часового ряду",
         save_path=str(output_dir / '03_decomposition.svg')
@@ -202,14 +200,14 @@ def mode_analysis(df_prepared, config, output_dir):
     analyzer = prop.TimeSeriesProperties()
     props_result = analyzer.analyze_all(data_series, nlags=40)
     
-    adv.plot_stationarity_tests(
+    dv.plot_stationarity_tests(
         data_series,
         props_result['stationarity'],
         save_path=str(output_dir / '04_stationarity.svg'),
         window_size=config.get('cluster_window')
     )
     
-    adv.plot_hurst_and_acf(
+    dv.plot_hurst_and_acf(
         data_series,
         props_result,
         save_path=str(output_dir / '05_hurst_acf.svg')
@@ -233,7 +231,7 @@ def mode_analysis(df_prepared, config, output_dir):
     )
     print(f"  Якість (silhouette): {silhouette:.3f}")
     
-    adv.plot_clustering_results(
+    dv.plot_clustering_results(
         data_series,
         cluster_result,
         save_path=str(output_dir / '06_clustering.svg')
@@ -309,7 +307,7 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     print(f"  Std (σ)       {data_series.std():<12.1f} {synthetic_series.std():<12.1f}")
     
     # Візуалізація
-    adv.plot_synthetic_vs_real(
+    dv.plot_synthetic_vs_real(
         data_series,
         synthetic_combined,
         save_path=str(output_dir / '07_synthetic_comparison.svg')
