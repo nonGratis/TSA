@@ -54,7 +54,12 @@ def run_pipeline(df_prepared: pd.DataFrame, config: Dict) -> pd.DataFrame:
     is_imputed = df_prepared['imputed'].values.astype(bool)
     n = len(r_id)
     
-    state_dim, reason = select_best_model(r_id)
+    if config.get('state_dim') is not None:
+        state_dim = config['state_dim']
+        reason = 'manual'
+    else:
+        state_dim, reason = select_best_model(r_id)
+    
     proc_q, meas_r = estimate_noise_parameters(r_id)
     
     # Краща ініціалізація швидкості
@@ -72,7 +77,13 @@ def run_pipeline(df_prepared: pd.DataFrame, config: Dict) -> pd.DataFrame:
     # Таблиця налаштувань
     lam_calc = (ab_filter.Q / ab_filter.R) * (ab_filter.dt ** 2)
     model_name = 'CV' if state_dim == 2 else 'CA'
-    reason_ua = {'standard': 'стандарт', 'monotonic': 'монотон', 'high-dynamic': 'висока-дин', 'default': 'дефолт'}[reason]
+    reason_ua = {
+        'standard': 'стандарт', 
+        'monotonic': 'монотон', 
+        'high-dynamic': 'висока-дин', 
+        'default': 'дефолт',
+        'manual': 'ручний'
+    }[reason]
     print(f"\n[НАЛАШТУВАННЯ ФІЛЬТРА]")
     print(f"  Модель:  {model_name} ({reason_ua})")
     print(f"  Параметри: λ={lam_calc:.4f}  α={ab_filter.alpha:.4f}  β={ab_filter.beta:.4f}")
