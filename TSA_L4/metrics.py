@@ -140,6 +140,7 @@ def evaluate_filter_performance(
         'bias': calculate_bias(residuals),
         'percent_divergence': calculate_percent_divergence(y_true, y_filtered),
         'residual_std': float(np.std(residuals, ddof=1)),
+        'mape': calculate_mape(y_true, y_filtered),
         'residual_mean': float(np.mean(residuals))
     }
     
@@ -155,6 +156,7 @@ def evaluate_filter_performance(
         print(f"  Точність:  RMSE={metrics['rmse']:.2f}  MAE={metrics['mae']:.2f}  R²={metrics['r2']:.4f}")
         print(f"  Похибки:   Зміщ.={metrics['bias']:.2f}  Дивер.={metrics['percent_divergence']:.2f}%")
         print(f"  Залишки:   σ={metrics['residual_std']:.1f}  ACF(1)={metrics['acf_lag1']:.3f}")
+        print(f"  MAPE:      {metrics['mape']:.2f}%")
     
     return metrics
 
@@ -192,3 +194,8 @@ def check_residuals_whiteness(residuals: np.ndarray, nlags: int = 40, alpha: flo
         'is_white_noise': is_white_noise,
         'confidence_bound': confidence_bound
     }
+    
+def calculate_mape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    mask = y_true != 0
+    return float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
