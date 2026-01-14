@@ -47,8 +47,8 @@ def parse_arguments():
     
     # Режим роботи
     parser.add_argument('--mode', type=str, default='full',
-                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'full'],
-                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, full')
+                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'ma-grid', 'full'],
+                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, ma-grid, full')
     
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
@@ -94,6 +94,7 @@ def parse_arguments():
     
     # Параметри для прогнозування
     parser.add_argument('--ma-window', type=int, default=24, help='Вікно для Moving Average')
+    parser.add_argument('--ma-windows', type=str, default='7,14,24,48,96', help='Вікна для MA grid search')
     parser.add_argument('--arima-order', type=str, default='1,1,1', help='ARIMA order p,d,q')
     parser.add_argument('--arima-p-max', type=int, default=2, help='Max p для ARIMA grid search')
     parser.add_argument('--arima-d-max', type=int, default=1, help='Max d для ARIMA grid search')
@@ -517,6 +518,79 @@ def mode_arima_grid(df_prepared, config, output_dir):
     }
 
 
+def mode_ma_grid(df_prepared, config, output_dir):
+    """MA Grid Search: перебір різних розмірів вікна."""
+    print("РЕЖИМ: MA WINDOW GRID SEARCH")
+    
+    data_series = df_prepared['r_id'].astype(float)
+    k_steps = config['k_steps']
+    
+    train = data_series.iloc[:-k_steps]
+    test = data_series.iloc[-k_steps:]
+    
+    # Парсинг вікон
+    windows = [int(w) for w in config.get('ma_windows', '7,14,24,48,96').split(',')]
+    
+    print(f"\n[GRID SEARCH]")
+    print(f"  Вікна: {windows}")
+    print(f"  Train: {len(train)}, Test: {len(test)}")
+    
+    forecaster = fc.ClassicalForecaster()
+    results = []
+    
+    print(f"\n{'Window':<10} | {'RMSE':<10} | {'MAE':<10} | {'MAPE (%)':<10}")
+    print("-" * 50)
+    
+    for w in windows:
+        try:
+            pred, _ = forecaster.moving_average_forecast(train, window=w, steps=k_steps)
+            
+            if np.allclose(pred, 0):
+                raise ValueError("Empty forecast")
+            
+            rmse = mt.calculate_rmse(test.values, pred)
+            mae = mt.calculate_mae(test.values, pred)
+            mape = mt.calculate_percent_divergence(test.values, pred)
+            
+            results.append({
+                'window': w,
+                'rmse': rmse,
+                'mae': mae,
+                'mape': mape,
+                'pred': pred
+            })
+            
+            print(f"{w:<10} | {rmse:<10.2f} | {mae:<10.2f} | {mape:<10.2f}")
+            
+        except Exception as e:
+            print(f"{w:<10} | {'FAIL':<10} | {'':<10} | {str(e)[:20]}")
+    
+    if not results:
+        print("\n  [ERROR] Жодне вікно не підійшло!")
+        return None
+    
+    # Найкращі
+    best_rmse = min(results, key=lambda x: x['rmse'])
+    best_mape = min(results, key=lambda x: x['mape'])
+    
+    print(f"\n{'='*50}")
+    print(f"  Найкраще за RMSE: window={best_rmse['window']} (RMSE={best_rmse['rmse']:.2f})")
+    print(f"  Найкраще за MAPE: window={best_mape['window']} (MAPE={best_mape['mape']:.2f}%)")
+    
+    # Зберігаємо результати
+    results_df = pd.DataFrame([{
+        'window': r['window'], 'rmse': r['rmse'], 'mae': r['mae'], 'mape': r['mape']
+    } for r in results])
+    results_df.to_csv(output_dir / 'ma_grid_results.csv', index=False)
+    print(f"\n  Результати збережено: {output_dir / 'ma_grid_results.csv'}")
+    
+    return {
+        'results': results,
+        'best_rmse': best_rmse,
+        'best_mape': best_mape
+    }
+
+
 def main():
     args = parse_arguments()
     config = vars(args)
@@ -555,6 +629,9 @@ def main():
         
         elif args.mode == 'arima-grid':
             mode_arima_grid(df_prepared, config, output_dir)
+        
+        elif args.mode == 'ma-grid':
+            mode_ma_grid(df_prepared, config, output_dir)
             
         elif args.mode == 'full':            
             df_filtered, metrics_result = mode_filtering(df_raw, df_prepared, config, output_dir)
