@@ -452,7 +452,7 @@ def main():
         df_prepared = dh.prepare_timeseries(df_raw)
         
         output_dir = Path(__file__).parent / args.output_dir
-        output_dir.mkdir(exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         if args.mode == 'filtering':
             mode_filtering(df_raw, df_prepared, config, output_dir)
