@@ -417,13 +417,13 @@ def mode_forecasting(df_prepared, config, output_dir):
     if not config.get('no_plots'):
         dv.plot_forecast_validation(
             train, test, results, k_steps,
-            title="Валідація моделей прогнозування",
+            title="Порівняльна валідація моделей прогнозування часових рядів",
             save_path=str(output_dir / '08_forecast_validation.svg')
         )
         
         dv.plot_forecast_extrapolation(
             data_series, hw_future, hw_conf, kf_future, kf_conf, k_steps,
-            title=f"Екстраполяція на {final_steps} кроків: HW vs Kalman",
+            title=f"Екстраполяція часового ряду: порівняння методів прогнозування (k={final_steps})",
             save_path=str(output_dir / '09_forecast_extrapolation.svg')
         )
         

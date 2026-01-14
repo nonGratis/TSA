@@ -796,9 +796,9 @@ def plot_forecast_validation(
     plot_start = len(train) - k_steps * 3
     
     ax.plot(train.index[plot_start:], train.values[plot_start:], 
-            label='Train', color=COLOR_GRAY, linewidth=2)
-    ax.plot(test.index, test.values, label='Test (True)', 
-            color=COLOR_BLACK, linewidth=2)
+            label=f'Навчальна вибірка (n={len(train)})', color=COLOR_GRAY, linewidth=2)
+    ax.plot(test.index, test.values, label=f'Тестова вибірка — фактичні значення (n={len(test)})', 
+            color=COLOR_BLACK, linewidth=2.5, marker='o', markersize=4)
     
     # Кольори для моделей
     colors = {
@@ -808,16 +808,28 @@ def plot_forecast_validation(
         'Kalman (AB)': COLOR_PRIMARY
     }
     
+    model_names = {
+        'MA': 'Ковзне середнє',
+        'Holt-Winters': 'Holt-Winters (експоненційне згладжування)',
+        'ARIMA': 'ARIMA',
+        'Kalman (AB)': 'AB Фільтр Калмана'
+    }
+    
     for name, pred in predictions.items():
         color = colors.get(name, COLOR_ACCENT)
-        ax.plot(test.index, pred, label=f'{name}', 
-                linestyle='--', color=color, linewidth=1.5)
+        display_name = model_names.get(name, name)
+        ax.plot(test.index, pred, label=f'{display_name}', 
+                linestyle='--', color=color, linewidth=2, marker='s', markersize=3)
     
-    ax.set_xlabel('Час', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Значення', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold')
-    ax.legend(fontsize=10, loc='best')
-    ax.grid(True, alpha=0.3)
+    # Вертикальна лінія розділення
+    ax.axvline(x=train.index[-1], color=COLOR_ACCENT, linestyle=':', 
+               linewidth=2, alpha=0.7, label='Межа train/test')
+    
+    ax.set_xlabel('Часовий індекс', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення показника часового ряду', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=15)
+    ax.legend(fontsize=9, loc='best', framealpha=0.95)
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     
     plt.tight_layout()
     
@@ -857,7 +869,8 @@ def plot_forecast_extrapolation(
     history_window = k_steps * 2
     ax.plot(np.arange(len(data_series))[-history_window:], 
             data_series.values[-history_window:], 
-            label='History', color=COLOR_BLACK, linewidth=2)
+            label=f'Історичні спостереження (останні {history_window} точок)', 
+            color=COLOR_BLACK, linewidth=2.5)
     
     # Future Index
     final_steps = len(hw_forecast)
@@ -865,21 +878,28 @@ def plot_forecast_extrapolation(
     
     # Holt-Winters
     ax.plot(future_idx, hw_forecast, color=COLOR_GREEN, 
-            label='Holt-Winters Forecast', linewidth=2)
+            label=f'Прогноз Holt-Winters', linewidth=2.5, marker='o', markersize=3)
     ax.fill_between(future_idx, hw_confidence[:, 0], hw_confidence[:, 1], 
-                    color=COLOR_GREEN, alpha=0.1, label='HW 95% CI')
+                    color=COLOR_GREEN, alpha=0.15, 
+                    label='Довірчий інтервал HW (95%, 1.96σ)')
     
     # Kalman
     ax.plot(future_idx, kf_forecast, color=COLOR_PRIMARY, 
-            linestyle='--', label='Kalman (AB) Forecast', linewidth=2)
+            linestyle='--', label=f'Прогноз фільтра Калмана (Alpha-Beta)', 
+            linewidth=2.5, marker='s', markersize=3)
     ax.fill_between(future_idx, kf_confidence[:, 0], kf_confidence[:, 1], 
-                    color=COLOR_PRIMARY, alpha=0.1, label='Kalman 95% CI')
+                    color=COLOR_PRIMARY, alpha=0.15, 
+                    label='Довірчий інтервал Калмана (95%, 1.96σ)')
     
-    ax.set_xlabel('Індекс часу', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Значення', fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold')
-    ax.legend(fontsize=10, loc='best')
-    ax.grid(True, alpha=0.3)
+    # Вертикальна лінія початку прогнозу
+    ax.axvline(x=len(data_series)-1, color=COLOR_ACCENT, linestyle=':', 
+               linewidth=2, alpha=0.7, label='Початок екстраполяції')
+    
+    ax.set_xlabel('Індекс часу (дискретні кроки)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Прогнозоване значення показника', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold', pad=15)
+    ax.legend(fontsize=9, loc='best', framealpha=0.95, ncol=2)
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     
     plt.tight_layout()
     
