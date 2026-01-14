@@ -65,6 +65,8 @@ def parse_arguments():
                        help='Період сезонності для декомпозиції (авто якщо не вказано)')
     parser.add_argument('--decomp-seasonal', type=int, default=7,
                        help='Розмір вікна сезонності (має бути непарним)')
+    parser.add_argument('--diff-data', action='store_true',
+                       help='Диференціювати дані перед аналізом (data.diff())')
     
     # Параметри кластеризації
     parser.add_argument('--cluster-method', type=str, default='kmeans',
@@ -83,6 +85,11 @@ def parse_arguments():
                        help='Довжина синтетичного ряду')
     parser.add_argument('--synthetic-seed', type=int, default=42,
                        help='Random seed для синтетичних даних')
+    parser.add_argument('--synthetic-trend', type=str, default='polynomial',
+                       choices=['linear', 'polynomial', 'exponential', 'logarithmic'],
+                       help='Тип тренду для синтетичних даних')
+    parser.add_argument('--synthetic-poly-degree', type=int, default=2,
+                       help='Степінь полінома для polynomial тренду (1-5)')
     
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
@@ -158,6 +165,13 @@ def mode_filtering(df_raw, df_prepared, config, output_dir):
 
 def mode_analysis(df_prepared, config, output_dir):
     data_series = df_prepared['r_id']
+    
+    # Диференціювання якщо вказано
+    if config.get('diff_data', False):
+        data_series = data_series.diff().dropna()
+        print(f"\n[ДИФЕРЕНЦІЮВАННЯ]")
+        print(f"  Застосовано data.diff()")
+        print(f"  Нова довжина: {len(data_series)}")
     
     decomposer = dec.TimeSeriesDecomposer(
         period=config.get('decomp_period'),
@@ -271,7 +285,9 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     synthetic_combined, synthetic_info = generator.generate_from_real_properties(
         data_series,
         decomp_result,
-        props_result
+        props_result,
+        trend_type=config.get('synthetic_trend', 'polynomial'),
+        poly_degree=config.get('synthetic_poly_degree', 2)
     )
     
     synthetic_series = pd.Series(synthetic_combined)

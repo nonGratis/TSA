@@ -253,7 +253,9 @@ class SyntheticTimeSeriesGenerator:
     
     def generate_from_real_properties(self, real_data: pd.Series, 
                                      decomposition_result: Dict,
-                                     properties: Dict) -> Tuple[np.ndarray, Dict]:
+                                     properties: Dict,
+                                     trend_type: str = 'polynomial',
+                                     poly_degree: int = 2) -> Tuple[np.ndarray, Dict]:
         """
         Генерація синтетичних даних на основі властивостей реальних даних.
         
@@ -269,10 +271,16 @@ class SyntheticTimeSeriesGenerator:
         trend_component = decomposition_result['trend'].values
         seasonal_component = decomposition_result['seasonal'].values
         
-        # Параметри тренду (апроксимація поліномом 2-го степеня)
+        # Параметри тренду
         t_real = np.arange(len(trend_component))
         valid_mask = np.isfinite(trend_component)
-        trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], 2)
+        
+        if trend_type == 'polynomial':
+            poly_degree = min(max(1, poly_degree), 5)  # Обмеження 1-5
+            trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], poly_degree)
+        else:
+            # Для інших типів використовуємо лінійну апроксимацію як базу
+            trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], 1)
         
         # Параметри сезонності (FFT для виділення головних частот)
         from scipy.fft import fft, fftfreq
@@ -295,9 +303,25 @@ class SyntheticTimeSeriesGenerator:
         # Генеруємо синтетичні дані з правильною довжиною
         t_synthetic = np.arange(self.length)
         
-        # Масштабуємо t для тренду (нормалізуємо до діапазону реальних даних)
+        # Генеруємо тренд відповідно до типу
         t_scaled = t_synthetic * (len(trend_component) / self.length)
-        synthetic_trend = np.polyval(trend_coeffs, t_scaled)
+        
+        if trend_type == 'polynomial':
+            synthetic_trend = np.polyval(trend_coeffs, t_scaled)
+        elif trend_type == 'linear':
+            synthetic_trend = np.polyval(trend_coeffs, t_scaled)
+        elif trend_type == 'exponential':
+            # Апроксимуємо експоненціальним трендом
+            base_linear = np.polyval(trend_coeffs, t_scaled)
+            rate = (base_linear[-1] - base_linear[0]) / (self.length * np.mean(np.abs(base_linear)))
+            synthetic_trend = base_linear[0] * np.exp(rate * t_synthetic)
+        elif trend_type == 'logarithmic':
+            # Апроксимуємо логарифмічним трендом
+            base_linear = np.polyval(trend_coeffs, t_scaled)
+            scale = (base_linear[-1] - base_linear[0]) / np.log(self.length + 1)
+            synthetic_trend = base_linear[0] + scale * np.log(t_synthetic + 1)
+        else:
+            synthetic_trend = np.polyval(trend_coeffs, t_scaled)
         
         synthetic_seasonal = self.generate_seasonality(
             periods[:3], 
@@ -311,9 +335,18 @@ class SyntheticTimeSeriesGenerator:
         
         synthetic_combined = synthetic_trend + synthetic_seasonal + synthetic_noise
         
+        # Форматуємо назву тренду
+        trend_names = {
+            'polynomial': f'поліном {poly_degree}-го степеня',
+            'linear': 'лінійний',
+            'exponential': 'експоненціальний',
+            'logarithmic': 'логарифмічний'
+        }
+        trend_name = trend_names.get(trend_type, trend_type)
+        
         print(f"\n[СИНТЕТИЧНІ ДАНІ]")
         print(f"  Довжина:      {self.length} точок")
-        print(f"  Тренд:        поліном 2-го степеня")
+        print(f"  Тренд:        {trend_name}")
         print(f"  Сезонність:   {len(periods[:3])} періоди")
         print(f"  Шум:          H={hurst_val:.2f}, σ={noise_std:.1f}")
         
