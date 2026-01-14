@@ -10,6 +10,7 @@ import data_vizer as dv
 import pipeline as pl
 import metrics as mt
 from kalman import AlphaBetaFilter
+import forecasting as fc
 
 import decomposition as dec
 import properties as prop
@@ -46,8 +47,8 @@ def parse_arguments():
     
     # Режим роботи
     parser.add_argument('--mode', type=str, default='full',
-                       choices=['filtering', 'analysis', 'synthetic', 'full'],
-                       help='Режим роботи: filtering, analysis, synthetic, full')
+                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'full'],
+                        help='Режим роботи: filtering, analysis, synthetic, forecasting, full')
     
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
@@ -90,6 +91,10 @@ def parse_arguments():
                        help='Тип тренду для синтетичних даних')
     parser.add_argument('--synthetic-poly-degree', type=int, default=2,
                        help='Степінь полінома для polynomial тренду (1-5)')
+    
+    # Параметри для прогнозування
+    parser.add_argument('--ma-window', type=int, default=24, help='Вікно для Moving Average')
+    parser.add_argument('--arima-order', type=str, default='1,1,1', help='ARIMA order p,d,q')
     
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
@@ -322,6 +327,139 @@ def mode_synthetic(df_prepared, analysis_result, config, output_dir):
     
     return synthetic_info, synth_props
 
+def mode_forecasting(df_prepared, config, output_dir):
+    print("РЕЖИМ: FORECASTING & COMPARISON (Група вимог 1 & 2)")
+
+    data_series = df_prepared['r_id'].astype(float)
+    k_steps = config['k_steps']
+    
+    # 1. Розділення на train/test для валідації (останні k_steps)
+    train = data_series.iloc[:-k_steps]
+    test = data_series.iloc[-k_steps:]
+    
+    print(f"\n[ВАЛІДАЦІЯ МОДЕЛЕЙ]")
+    print(f"  Train size: {len(train)}")
+    print(f"  Test size:  {len(test)}")
+    
+    forecaster = fc.ClassicalForecaster()
+    results = {}
+    
+    # --- A. Moving Average ---
+    ma_pred, _ = forecaster.moving_average_forecast(train, window=config['ma_window'], steps=k_steps)
+    results['MA'] = ma_pred
+    
+    # --- B. Holt-Winters (Exponential Smoothing) ---
+    # Визначаємо сезонність
+    seasonal_period = config.get('decomp_period') if config.get('decomp_period') else 24
+    hw_pred, _ = forecaster.holt_winters_forecast(train, steps=k_steps, seasonal_periods=seasonal_period)
+    results['Holt-Winters'] = hw_pred
+    
+    # --- C. ARIMA ---
+    # Парсинг ордера
+    try:
+        p, d, q = map(int, config['arima_order'].split(','))
+        order = (p, d, q)
+    except:
+        order = (1, 1, 1)
+        
+    arima_pred, _ = forecaster.arima_forecast(train, order=order, steps=k_steps)
+    results['ARIMA'] = arima_pred
+    
+    # --- D. Kalman Filter (Alpha-Beta) ---
+    # Швидке налаштування фільтра на train
+    ab_filter = AlphaBetaFilter(dt=1.0, state_dim=2) # CV модель як базова
+    # "Прогрів" фільтра
+    for val in train.values:
+        ab_filter.predict()
+        ab_filter.update(val)
+    
+    kf_pred, _ = ab_filter.predict_k_steps(k_steps)
+    results['Kalman (AB)'] = kf_pred
+    
+    # --- Порівняння ---
+    print(f"\n{'Model':<15} | {'RMSE':<10} | {'MAE':<10} | {'MAPE (%)':<10}")
+    print("-" * 55)
+    
+    best_model = None
+    best_rmse = float('inf')
+    
+    for name, pred in results.items():
+        rmse = mt.calculate_rmse(test.values, pred)
+        mae = mt.calculate_mae(test.values, pred)
+        mape = mt.calculate_percent_divergence(test.values, pred) # Це по суті MAPE
+        
+        print(f"{name:<15} | {rmse:<10.2f} | {mae:<10.2f} | {mape:<10.2f}")
+        
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_model = name
+            
+    print(f"\n  Переможець за RMSE: {best_model}")
+    
+    # --- Екстраполяція (на майбутнє) ---
+    print(f"\n[ЕКСТРАПОЛЯЦІЯ НА МАЙБУТНЄ]")
+    # Тренуємо на ВСІХ даних
+    print(f"  Прогноз на {k_steps} (1.0 інтервал), {int(k_steps*1.5)} (1.5), {k_steps*2} (2.0) кроків...")
+    
+    final_steps = k_steps * 2
+    
+    # Holt-Winters як найбільш ймовірний переможець для сезонних даних
+    hw_future, hw_conf = forecaster.holt_winters_forecast(data_series, steps=final_steps, seasonal_periods=seasonal_period)
+    
+    # Kalman
+    ab_filter_full = AlphaBetaFilter(dt=1.0, state_dim=2)
+    for val in data_series.values:
+        ab_filter_full.predict()
+        ab_filter_full.update(val)
+    kf_future, kf_vars = ab_filter_full.predict_k_steps(final_steps)
+    kf_conf = np.column_stack([kf_future - 1.96*np.sqrt(kf_vars), kf_future + 1.96*np.sqrt(kf_vars)])
+
+    if not config.get('no_plots'):
+        import matplotlib.pyplot as plt
+        
+        fig, ax = plt.subplots(figsize=(14, 7))
+        # Показуємо тільки хвіст train
+        plot_start = len(train) - k_steps * 3
+        
+        ax.plot(train.index[plot_start:], train.values[plot_start:], label='Train', color='gray')
+        ax.plot(test.index, test.values, label='Test (True)', color='black', linewidth=2)
+        
+        colors = {'MA': 'orange', 'Holt-Winters': 'green', 'ARIMA': 'purple', 'Kalman (AB)': 'blue'}
+        for name, pred in results.items():
+            ax.plot(test.index, pred, label=f'{name}', linestyle='--', color=colors.get(name, 'red'))
+            
+        ax.set_title("Валідація моделей прогнозування")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.savefig(str(output_dir / '08_forecast_validation.svg'))
+        plt.close()
+        
+        # 2. Графік екстраполяції (Future)
+        fig, ax = plt.subplots(figsize=(14, 7))
+        
+        # Останні дані
+        ax.plot(np.arange(len(data_series))[-k_steps*2:], data_series.values[-k_steps*2:], label='History', color='black')
+        
+        # Future Index
+        future_idx = np.arange(len(data_series), len(data_series) + final_steps)
+        
+        # HW
+        ax.plot(future_idx, hw_future, color='green', label='Holt-Winters Forecast')
+        ax.fill_between(future_idx, hw_conf[:,0], hw_conf[:,1], color='green', alpha=0.1)
+        
+        # Kalman
+        ax.plot(future_idx, kf_future, color='blue', linestyle='--', label='Kalman (AB) Forecast')
+        ax.fill_between(future_idx, kf_conf[:,0], kf_conf[:,1], color='blue', alpha=0.1)
+        
+        ax.set_title(f"Екстраполяція на {final_steps} кроків: HW vs Kalman")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.savefig(str(output_dir / '09_forecast_extrapolation.svg'))
+        plt.close()
+        
+        print(f"  Графіки порівняння збережено у {output_dir}")
+
+    return results
 
 def main():
     args = parse_arguments()
@@ -356,12 +494,16 @@ def main():
             analysis_result = mode_analysis(df_prepared, config, output_dir)
             mode_synthetic(df_prepared, analysis_result, config, output_dir)
             
+        elif args.mode == 'forecasting':
+            mode_forecasting(df_prepared, config, output_dir)
+            
         elif args.mode == 'full':            
             df_filtered, metrics_result = mode_filtering(df_raw, df_prepared, config, output_dir)
             analysis_result = mode_analysis(df_prepared, config, output_dir)
             synthetic_info, synth_props = mode_synthetic(
                 df_prepared, analysis_result, config, output_dir
             )
+            mode_forecasting(df_prepared, config, output_dir)
                 
     except Exception as e:
         import traceback
