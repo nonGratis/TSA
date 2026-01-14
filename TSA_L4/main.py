@@ -415,47 +415,17 @@ def mode_forecasting(df_prepared, config, output_dir):
     kf_conf = np.column_stack([kf_future - 1.96*np.sqrt(kf_vars), kf_future + 1.96*np.sqrt(kf_vars)])
 
     if not config.get('no_plots'):
-        import matplotlib.pyplot as plt
+        dv.plot_forecast_validation(
+            train, test, results, k_steps,
+            title="Валідація моделей прогнозування",
+            save_path=str(output_dir / '08_forecast_validation.svg')
+        )
         
-        fig, ax = plt.subplots(figsize=(14, 7))
-        # Показуємо тільки хвіст train
-        plot_start = len(train) - k_steps * 3
-        
-        ax.plot(train.index[plot_start:], train.values[plot_start:], label='Train', color='gray')
-        ax.plot(test.index, test.values, label='Test (True)', color='black', linewidth=2)
-        
-        colors = {'MA': 'orange', 'Holt-Winters': 'green', 'ARIMA': 'purple', 'Kalman (AB)': 'blue'}
-        for name, pred in results.items():
-            ax.plot(test.index, pred, label=f'{name}', linestyle='--', color=colors.get(name, 'red'))
-            
-        ax.set_title("Валідація моделей прогнозування")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.savefig(str(output_dir / '08_forecast_validation.svg'))
-        plt.close()
-        
-        # 2. Графік екстраполяції (Future)
-        fig, ax = plt.subplots(figsize=(14, 7))
-        
-        # Останні дані
-        ax.plot(np.arange(len(data_series))[-k_steps*2:], data_series.values[-k_steps*2:], label='History', color='black')
-        
-        # Future Index
-        future_idx = np.arange(len(data_series), len(data_series) + final_steps)
-        
-        # HW
-        ax.plot(future_idx, hw_future, color='green', label='Holt-Winters Forecast')
-        ax.fill_between(future_idx, hw_conf[:,0], hw_conf[:,1], color='green', alpha=0.1)
-        
-        # Kalman
-        ax.plot(future_idx, kf_future, color='blue', linestyle='--', label='Kalman (AB) Forecast')
-        ax.fill_between(future_idx, kf_conf[:,0], kf_conf[:,1], color='blue', alpha=0.1)
-        
-        ax.set_title(f"Екстраполяція на {final_steps} кроків: HW vs Kalman")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.savefig(str(output_dir / '09_forecast_extrapolation.svg'))
-        plt.close()
+        dv.plot_forecast_extrapolation(
+            data_series, hw_future, hw_conf, kf_future, kf_conf, k_steps,
+            title=f"Екстраполяція на {final_steps} кроків: HW vs Kalman",
+            save_path=str(output_dir / '09_forecast_extrapolation.svg')
+        )
         
         print(f"  Графіки порівняння збережено у {output_dir}")
 

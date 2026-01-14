@@ -769,3 +769,122 @@ def plot_velocity_analysis(
         plt.close()
     else:
         plt.show()
+
+
+def plot_forecast_validation(
+    train: pd.Series,
+    test: pd.Series,
+    predictions: Dict[str, np.ndarray],
+    k_steps: int,
+    title: str = "Валідація моделей прогнозування",
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Візуалізація порівняння моделей прогнозування на тестових даних.
+    
+    Args:
+        train: Тренувальні дані
+        test: Тестові дані
+        predictions: Словник {назва_моделі: масив_прогнозів}
+        k_steps: Кількість кроків прогнозу
+        title: Заголовок графіку
+        save_path: Шлях для збереження
+    """
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # Показуємо тільки хвіст train
+    plot_start = len(train) - k_steps * 3
+    
+    ax.plot(train.index[plot_start:], train.values[plot_start:], 
+            label='Train', color=COLOR_GRAY, linewidth=2)
+    ax.plot(test.index, test.values, label='Test (True)', 
+            color=COLOR_BLACK, linewidth=2)
+    
+    # Кольори для моделей
+    colors = {
+        'MA': COLOR_SECONDARY,
+        'Holt-Winters': COLOR_GREEN,
+        'ARIMA': COLOR_PURPLE,
+        'Kalman (AB)': COLOR_PRIMARY
+    }
+    
+    for name, pred in predictions.items():
+        color = colors.get(name, COLOR_ACCENT)
+        ax.plot(test.index, pred, label=f'{name}', 
+                linestyle='--', color=color, linewidth=1.5)
+    
+    ax.set_xlabel('Час', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_forecast_extrapolation(
+    data_series: pd.Series,
+    hw_forecast: np.ndarray,
+    hw_confidence: np.ndarray,
+    kf_forecast: np.ndarray,
+    kf_confidence: np.ndarray,
+    k_steps: int,
+    title: str = "Екстраполяція: HW vs Kalman",
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Візуалізація екстраполяції на майбутнє.
+    
+    Args:
+        data_series: Історичні дані
+        hw_forecast: Прогноз Holt-Winters
+        hw_confidence: Довірчі інтервали HW [lower, upper]
+        kf_forecast: Прогноз Kalman
+        kf_confidence: Довірчі інтервали Kalman [lower, upper]
+        k_steps: Базова кількість кроків
+        title: Заголовок графіку
+        save_path: Шлях для збереження
+    """
+    fig, ax = plt.subplots(figsize=(14, 7))
+    
+    # Останні дані
+    history_window = k_steps * 2
+    ax.plot(np.arange(len(data_series))[-history_window:], 
+            data_series.values[-history_window:], 
+            label='History', color=COLOR_BLACK, linewidth=2)
+    
+    # Future Index
+    final_steps = len(hw_forecast)
+    future_idx = np.arange(len(data_series), len(data_series) + final_steps)
+    
+    # Holt-Winters
+    ax.plot(future_idx, hw_forecast, color=COLOR_GREEN, 
+            label='Holt-Winters Forecast', linewidth=2)
+    ax.fill_between(future_idx, hw_confidence[:, 0], hw_confidence[:, 1], 
+                    color=COLOR_GREEN, alpha=0.1, label='HW 95% CI')
+    
+    # Kalman
+    ax.plot(future_idx, kf_forecast, color=COLOR_PRIMARY, 
+            linestyle='--', label='Kalman (AB) Forecast', linewidth=2)
+    ax.fill_between(future_idx, kf_confidence[:, 0], kf_confidence[:, 1], 
+                    color=COLOR_PRIMARY, alpha=0.1, label='Kalman 95% CI')
+    
+    ax.set_xlabel('Індекс часу', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення', fontsize=12, fontweight='bold')
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
