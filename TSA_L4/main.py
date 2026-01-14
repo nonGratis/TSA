@@ -47,8 +47,8 @@ def parse_arguments():
     
     # Режим роботи
     parser.add_argument('--mode', type=str, default='full',
-                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'full'],
-                        help='Режим роботи: filtering, analysis, synthetic, forecasting, full')
+                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'full'],
+                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, full')
     
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
@@ -95,6 +95,9 @@ def parse_arguments():
     # Параметри для прогнозування
     parser.add_argument('--ma-window', type=int, default=24, help='Вікно для Moving Average')
     parser.add_argument('--arima-order', type=str, default='1,1,1', help='ARIMA order p,d,q')
+    parser.add_argument('--arima-p-max', type=int, default=2, help='Max p для ARIMA grid search')
+    parser.add_argument('--arima-d-max', type=int, default=1, help='Max d для ARIMA grid search')
+    parser.add_argument('--arima-q-max', type=int, default=2, help='Max q для ARIMA grid search')
     
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
@@ -431,6 +434,89 @@ def mode_forecasting(df_prepared, config, output_dir):
 
     return results
 
+
+def mode_arima_grid(df_prepared, config, output_dir):
+    """ARIMA Grid Search: перебір всіх комбінацій (p,d,q)."""
+    print("РЕЖИМ: ARIMA GRID SEARCH")
+    
+    data_series = df_prepared['r_id'].astype(float)
+    k_steps = config['k_steps']
+    
+    train = data_series.iloc[:-k_steps]
+    test = data_series.iloc[-k_steps:]
+    
+    p_max = config.get('arima_p_max', 2)
+    d_max = config.get('arima_d_max', 1)
+    q_max = config.get('arima_q_max', 2)
+    
+    print(f"\n[GRID SEARCH]")
+    print(f"  p: 0..{p_max}, d: 0..{d_max}, q: 0..{q_max}")
+    print(f"  Train: {len(train)}, Test: {len(test)}")
+    
+    forecaster = fc.ClassicalForecaster()
+    results = []
+    
+    print(f"\n{'Order':<12} | {'RMSE':<10} | {'MAE':<10} | {'AIC':<12}")
+    print("-" * 50)
+    
+    for p in range(p_max + 1):
+        for d in range(d_max + 1):
+            for q in range(q_max + 1):
+                order = (p, d, q)
+                try:
+                    pred, conf = forecaster.arima_forecast(train, order=order, steps=k_steps)
+                    
+                    # Перевіряємо чи прогноз валідний (не всі нулі)
+                    if np.allclose(pred, 0):
+                        raise ValueError("Empty forecast")
+                    
+                    rmse = mt.calculate_rmse(test.values, pred)
+                    mae = mt.calculate_mae(test.values, pred)
+                    
+                    # AIC з fitted моделі
+                    aic = forecaster.models.get('arima').aic if forecaster.models.get('arima') else float('inf')
+                    
+                    results.append({
+                        'order': order,
+                        'p': p, 'd': d, 'q': q,
+                        'rmse': rmse,
+                        'mae': mae,
+                        'aic': aic,
+                        'pred': pred
+                    })
+                    
+                    print(f"({p},{d},{q}){'':<6} | {rmse:<10.2f} | {mae:<10.2f} | {aic:<12.2f}")
+                    
+                except Exception as e:
+                    print(f"({p},{d},{q}){'':<6} | {'FAIL':<10} | {'':<10} | {str(e)[:20]}")
+    
+    if not results:
+        print("\n  [ERROR] Жодна модель не підійшла!")
+        return None
+    
+    # Найкращі моделі
+    best_rmse = min(results, key=lambda x: x['rmse'])
+    best_aic = min(results, key=lambda x: x['aic'])
+    
+    print(f"\n{'='*50}")
+    print(f"  Найкраща за RMSE: ARIMA{best_rmse['order']} (RMSE={best_rmse['rmse']:.2f})")
+    print(f"  Найкраща за AIC:  ARIMA{best_aic['order']} (AIC={best_aic['aic']:.2f})")
+    
+    # Зберігаємо результати
+    results_df = pd.DataFrame([{
+        'p': r['p'], 'd': r['d'], 'q': r['q'],
+        'rmse': r['rmse'], 'mae': r['mae'], 'aic': r['aic']
+    } for r in results])
+    results_df.to_csv(output_dir / 'arima_grid_results.csv', index=False)
+    print(f"\n  Результати збережено: {output_dir / 'arima_grid_results.csv'}")
+    
+    return {
+        'results': results,
+        'best_rmse': best_rmse,
+        'best_aic': best_aic
+    }
+
+
 def main():
     args = parse_arguments()
     config = vars(args)
@@ -466,6 +552,9 @@ def main():
             
         elif args.mode == 'forecasting':
             mode_forecasting(df_prepared, config, output_dir)
+        
+        elif args.mode == 'arima-grid':
+            mode_arima_grid(df_prepared, config, output_dir)
             
         elif args.mode == 'full':            
             df_filtered, metrics_result = mode_filtering(df_raw, df_prepared, config, output_dir)
