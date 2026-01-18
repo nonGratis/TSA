@@ -251,6 +251,48 @@ class SyntheticTimeSeriesGenerator:
         
         return combined, components
     
+    def generate_bootstrap(self, decomposition_result: Dict, n_samples: int = 1) -> np.ndarray:
+        """
+        Генерація даних методом STL-Bootstrap (зберігає форму тренду та сезонності).
+        """
+        trend = decomposition_result['trend'].fillna(method='bfill').fillna(method='ffill').values
+        seasonal = decomposition_result['seasonal'].fillna(0).values
+        resid = decomposition_result['resid'].fillna(0).values
+        
+        # Переконуємось, що довжина компонентів відповідає запитуваній довжині
+        # Якщо треба довші дані — повторюємо (тайлінг) або інтерполюємо
+        if self.length > len(trend):
+            # Простий тайлінг для прикладу (для DL краще інтерполяція)
+            repeats = int(np.ceil(self.length / len(trend)))
+            trend = np.tile(trend, repeats)[:self.length]
+            seasonal = np.tile(seasonal, repeats)[:self.length]
+            resid = np.tile(resid, repeats)[:self.length]
+        else:
+            # Обрізаємо
+            trend = trend[:self.length]
+            seasonal = seasonal[:self.length]
+            resid = resid[:self.length]
+
+        # Генеруємо нові ряди
+        synthetic_data = []
+        
+        # 1. Bootstrap залишків (перемішуємо блоки шуму)
+        # Простий варіант: випадкова вибірка з поверненням
+        random_resid = np.random.choice(resid, size=self.length, replace=True)
+        
+        # 2. Додаємо шум до "кістяка"
+        # Можна додати невеликий джиттер (шум) до тренду, щоб він не був ідентичним
+        trend_jitter = trend * np.random.normal(1, 0.01, size=self.length) # ±1% варіації тренду
+        
+        combined = trend_jitter + seasonal + random_resid
+        
+        return combined, {
+            'trend': trend_jitter,
+            'seasonal': seasonal,
+            'noise': random_resid,
+            'combined': combined
+        }
+    
     def generate_from_real_properties(self, real_data: pd.Series, 
                                      decomposition_result: Dict,
                                      properties: Dict,
@@ -275,7 +317,10 @@ class SyntheticTimeSeriesGenerator:
         t_real = np.arange(len(trend_component))
         valid_mask = np.isfinite(trend_component)
         
-        if trend_type == 'polynomial':
+        if trend_type == 'bootstrap':
+            print(f"\n[СИНТЕТИКА] Використовується метод STL-Bootstrap (збереження патернів)")
+            return self.generate_bootstrap(decomposition_result)
+        elif trend_type == 'polynomial':
             poly_degree = min(max(1, poly_degree), 5)  # Обмеження 1-5
             trend_coeffs = np.polyfit(t_real[valid_mask], trend_component[valid_mask], poly_degree)
         else:
@@ -386,3 +431,4 @@ def generate_test_series(n: int = 1000,
     series = pd.Series(combined, index=dates)
     
     return series
+

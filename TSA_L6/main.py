@@ -90,7 +90,7 @@ def parse_arguments():
     parser.add_argument('--synthetic-seed', type=int, default=42,
                        help='Random seed для синтетичних даних')
     parser.add_argument('--synthetic-trend', type=str, default='polynomial',
-                       choices=['linear', 'polynomial', 'exponential', 'logarithmic'],
+                       choices=['linear', 'polynomial', 'exponential', 'logarithmic', 'bootstrap'],
                        help='Тип тренду для синтетичних даних')
     parser.add_argument('--synthetic-poly-degree', type=int, default=2,
                        help='Степінь полінома для polynomial тренду (1-5)')
