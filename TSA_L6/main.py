@@ -10,13 +10,16 @@ import data_vizer as dv
 import pipeline as pl
 import metrics as mt
 from kalman import AlphaBetaFilter
+from regression import RegressionForecaster 
+from forecasting import ClassicalForecaster
 import forecasting as fc
 
 import decomposition as dec
 import properties as prop
 import clustering as clust
 import synthetic as synth
-
+import regression as reg
+import selector as sel
 
 def parse_arguments():
     """Парсинг аргументів командного рядка."""
@@ -47,8 +50,8 @@ def parse_arguments():
     
     # Режим роботи
     parser.add_argument('--mode', type=str, default='full',
-                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'ma-grid', 'full'],
-                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, ma-grid, full')
+                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'ma-grid', 'full', 'auto-select', 'regression'],
+                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, ma-grid, full, auto-select, regression')
     
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
@@ -99,6 +102,8 @@ def parse_arguments():
     parser.add_argument('--arima-p-max', type=int, default=2, help='Max p для ARIMA grid search')
     parser.add_argument('--arima-d-max', type=int, default=1, help='Max d для ARIMA grid search')
     parser.add_argument('--arima-q-max', type=int, default=2, help='Max q для ARIMA grid search')
+    
+    parser.add_argument('--poly-degree', type=int, default=2, help='Ступінь полінома для регресії')
     
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
@@ -590,6 +595,51 @@ def mode_ma_grid(df_prepared, config, output_dir):
         'best_mape': best_mape
     }
 
+def mode_regression(df, config, output_dir):
+    print("\n[MODE] Регресійний аналіз: Порівняння моделей регресії з експоненційним згладжуванням")
+    
+    series = df['r_id']
+    k_steps = config['k_steps']
+    train = series.iloc[:-k_steps]
+    test = series.iloc[-k_steps:]
+    print(f"  Train size: {len(train)}, Test size: {k_steps}")
+    rc = RegressionForecaster()
+    fc = ClassicalForecaster()
+    
+    results = {}
+    
+    results['Linear'] = rc.linear_regression(train, k_steps)
+    results['Poly(d=2)'] = rc.polynomial_regression(train, k_steps, degree=2)
+    results['Poly(d=3)'] = rc.polynomial_regression(train, k_steps, degree=3)
+    hw_pred, _ = fc.holt_winters_forecast(train, steps=k_steps, 
+                                          seasonal_periods=config.get('decomp_period', 24))
+    results['Holt-Winters'] = hw_pred
+
+    # Обчислення метрик
+    metrics = {}
+    metrics_str = f"{'Model':<15} | {'RMSE':<10}\n" + "-"*30 + "\n"
+    
+    for name, pred in results.items():
+        rmse = mt.calculate_rmse(test.values, pred)
+        metrics[name] = rmse
+        metrics_str += f"{name:<15} | {rmse:<10.2f}\n"
+    
+    print(metrics_str)
+
+    # Візуалізація (делегована в data_vizer)
+    save_path = str(output_dir / 'regression_comparison.svg')
+    dv.plot_regression_comparison(
+        train=train,
+        test=test,
+        predictions=results,
+        metrics=metrics,
+        k_steps=k_steps,
+        title='Регресія проти експоненціального згладжування',
+        save_path=save_path
+    )
+    
+    print(f"[PLOT] Графік збережено: {save_path}")
+
 
 def main():
     args = parse_arguments()
@@ -640,6 +690,15 @@ def main():
                 df_prepared, analysis_result, config, output_dir
             )
             mode_forecasting(df_prepared, config, output_dir)
+        elif args.mode == 'regression':
+            mode_regression(df_prepared, config, output_dir)
+        
+        elif args.mode == 'auto-select':
+            # Запуск нашого Selector
+            print("РЕЖИМ: АВТОМАТИЧНИЙ ВИБІР МЕТОДУ (Група вимог 3)")
+            selector = sel.ModelSelector(df_prepared['r_id'], freq_period=config['decomp_period'] or 24)
+            best_model_name, best_forecast = selector.select_best_model(k_steps=config['k_steps'])
+            print(f"\n[RESULT] Переможець алгоритму: {best_model_name}")
                 
     except Exception as e:
         import traceback

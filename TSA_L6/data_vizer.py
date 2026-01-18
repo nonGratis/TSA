@@ -908,3 +908,68 @@ def plot_forecast_extrapolation(
         plt.close()
     else:
         plt.show()
+
+
+def plot_regression_comparison(
+    train: pd.Series,
+    test: pd.Series,
+    predictions: Dict[str, np.ndarray],
+    metrics: Dict[str, float],
+    k_steps: int,
+    title: str = "Порівняння регресійних моделей",
+    save_path: Optional[str] = None
+) -> None:
+    fig, ax = plt.subplots(figsize=(15, 7))
+    
+    # plot_start = max(0, len(train) - 200)
+    plot_start = 0
+    ax.plot(train.index[plot_start:], train.values[plot_start:], 
+            label='Train History', color=COLOR_BLACK, alpha=0.5, linewidth=1.5)
+    
+    # Фактичні значення тесту
+    ax.plot(test.index, test.values, 
+            label='Actual Test', color=COLOR_BLACK, linewidth=2.5, marker='o', markersize=4)
+    
+    # Кольори та стилі для моделей
+    colors = {
+        'Linear': COLOR_ACCENT,
+        'Poly(d=2)': COLOR_SECONDARY,
+        'Poly(d=3)': COLOR_PURPLE,
+        'Holt-Winters': COLOR_PRIMARY
+    }
+    
+    styles = {
+        'Linear': '--',
+        'Poly(d=2)': '--',
+        'Poly(d=3)': '-.',
+        'Holt-Winters': '-'
+    }
+    
+    # Прогнози моделей
+    for name, pred in predictions.items():
+        color = colors.get(name, COLOR_GRAY)
+        style = styles.get(name, '-')
+        rmse = metrics.get(name, float('nan'))
+        label = f'{name} (RMSE: {rmse:.2f})' if not np.isnan(rmse) else name
+        
+        ax.plot(test.index, pred, 
+                label=label, color=color, linestyle=style, 
+                linewidth=2, marker='s', markersize=3, alpha=0.8)
+    
+    # Вертикальна лінія розділення train/test
+    ax.axvline(x=train.index[-1], color=COLOR_ACCENT, linestyle=':', 
+               linewidth=2, alpha=0.7, label='Train/Test Split')
+    
+    ax.set_xlabel('Часовий індекс', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення показника', fontsize=12, fontweight='bold')
+    ax.set_title(f'{title} (Horizon: {k_steps} steps)', fontsize=14, fontweight='bold', pad=15)
+    ax.legend(fontsize=10, loc='best', framealpha=0.95)
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
