@@ -121,11 +121,155 @@ def parse_arguments():
     return parser.parse_args()
 
 def mode_deep_learning(df_prepared, config, output_dir):
-    print("\n[MODE] DEEP LEARNING (LSTM + Time Embeddings)")
+    print("\n[MODE] DEEP LEARNING (Hybrid: Linear Trend + LSTM Residuals)")
+    import neural as nn 
+    from sklearn.linear_model import LinearRegression
+    
+    # --- ЕТАП 1: DETRENDING (Виділення тренду) ---
+    # Ми вчимо LSTM лише на "хвилях", прибравши глобальний ріст
+    print("  [PREP] Виділення глобального тренду...")
+    real_data = df_prepared['r_id']
+    
+    # Підготовка X для регресії (просто індекси часу)
+    X_time = np.arange(len(real_data)).reshape(-1, 1)
+    y_val = real_data.values.reshape(-1, 1)
+    
+    # Навчаємо лінійну регресію на всій історії
+    trend_model = LinearRegression()
+    trend_model.fit(X_time, y_val)
+    trend_values = trend_model.predict(X_time).flatten()
+    
+    # Отримуємо залишки (Residuals) - саме їх буде вчити LSTM!
+    # Вони стаціонарні (коливаються навколо нуля), це ідеально для LSTM
+    residuals = real_data - trend_values
+    residuals.name = 'residuals' # Зберігаємо індекс дат
+    
+    # --- ЕТАП 2: РОБОТА З LSTM ---
+    synth_path = output_dir / 'synthetic_residuals.csv' # Інший файл для синтетики залишків
+    model_path = output_dir / 'lstm_hybrid.keras'
+    
+    # Якщо треба - генеруємо синтетику на основі ЗАЛИШКІВ (а не сирих даних)
+    if not synth_path.exists() and not model_path.exists():
+        print(f"\n[AUTO-GEN] Генеруємо синтетичні залишки...")
+        gen_config = config.copy()
+        gen_config['synthetic_length'] = 10000
+        gen_config['synthetic_trend'] = 'bootstrap'
+        
+        # Аналізуємо саме залишки!
+        # Створюємо тимчасовий DF
+        df_resid = df_prepared.copy()
+        df_resid['r_id'] = residuals
+        
+        analysis_res = mode_analysis(df_resid, config, output_dir)
+        # Зберігаємо у спеціальний файл
+        orig_synth_func = mode_synthetic # save ref
+        
+        # Хак: перехоплюємо збереження
+        info, _ = mode_synthetic(df_resid, analysis_res, gen_config, output_dir)
+        # Перейменовуємо файл, щоб не плутати з основним
+        (output_dir / 'synthetic_data.csv').rename(synth_path)
+
+    learner = nn.DeepLearner(window_size=config['dl_window'])
+    
+    # Завантаження або Навчання
+    model_loaded = False
+    if not config.get('force_retrain'):
+        if learner.load_model(model_path):
+            print("  [INFO] Використовуємо попередньо навчену модель.")
+            learner.prepare_data(residuals) # Init scaler на залишках
+            model_loaded = True
+            
+    if not model_loaded:
+        print("\n[TRAIN] Навчання LSTM на залишках (Residuals)...")
+        if synth_path.exists():
+            df_synth = pd.read_csv(synth_path)
+            # Створюємо дати для синтетики
+            start_date = pd.to_datetime('2020-01-01')
+            df_synth.index = pd.date_range(start=start_date, periods=len(df_synth), freq='D')
+            train_series = df_synth['combined']
+        else:
+            train_series = residuals # Fallback на реальні, якщо синтетики нема
+
+        X_train, y_train = learner.prepare_data(train_series)
+        learner.build_lstm_model()
+        learner.train(X_train, y_train, epochs=config['dl_epochs'])
+        learner.save_model(model_path)
+
+    # --- ЕТАП 3: ВАЛІДАЦІЯ (Reconstruction) ---
+    print("\n[FORECAST] Валідація та Реконструкція...")
+    k_steps = config['k_steps']
+    window = config['dl_window']
+    
+    # Тест на останніх k кроках
+    split_idx = len(residuals) - k_steps
+    
+    # 1. Прогноз залишків LSTM
+    val_data_slice = residuals.iloc[split_idx-window:] 
+    X_test, y_test_scaled = learner.prepare_data(val_data_slice, fit_scaler=False)
+    resid_pred_scaled = learner.predict(X_test)
+    resid_pred = learner.scaler.inverse_transform(resid_pred_scaled.reshape(-1, 1)).flatten()
+    
+    # 2. Прогноз тренду (Лінійний)
+    # Індекси для тестового періоду
+    X_test_time = np.arange(split_idx, len(real_data)).reshape(-1, 1)
+    trend_pred = trend_model.predict(X_test_time).flatten()
+    
+    # 3. Сума (Реконструкція)
+    final_pred = trend_pred[:len(resid_pred)] + resid_pred
+    actual_y = real_data.iloc[split_idx:].values[:len(final_pred)]
+    
+    # Метрики
+    rmse = mt.calculate_rmse(actual_y, final_pred)
+    mae = mt.calculate_mae(actual_y, final_pred)
+    mape = mt.calculate_percent_divergence(actual_y, final_pred)
+    print(f"  [METRICS] RMSE: {rmse:.2f}, MAE: {mae:.2f}, MAPE: {mape:.2f}%")
+    
+    # --- ЕТАП 4: ЕКСТРАПОЛЯЦІЯ (Майбутнє) ---
+    # 1. LSTM прогнозує майбутні хвилі
+    last_window_series = residuals.iloc[-window:]
+    last_window_features = learner.prepare_forecast_input(last_window_series)
+    last_date = residuals.index[-1]
+    
+    future_residuals = learner.extrapolate(last_window_features, start_date=last_date, steps=k_steps)
+    
+    if np.isnan(future_residuals).any():
+        future_residuals = np.nan_to_num(future_residuals)
+
+    # 2. Регресія прогнозує майбутній тренд
+    last_time_idx = len(real_data)
+    future_time_idx = np.arange(last_time_idx, last_time_idx + k_steps).reshape(-1, 1)
+    future_trend = trend_model.predict(future_time_idx).flatten()
+    
+    # 3. Сума
+    future_final = future_trend + future_residuals
+
+    # 4. Повний прогноз для графіку (історія + майбутнє)
+    # Проганяємо LSTM по всій історії
+    X_full, _ = learner.prepare_data(residuals, fit_scaler=False)
+    full_resid_pred = learner.predict(X_full).flatten()
+    
+    # Відновлюємо повну історію (тренд + прогноз залишків)
+    # Увага: full_resid_pred коротший на window_size
+    full_trend = trend_values[window:]
+    reconstructed_history = full_trend + full_resid_pred
+
+    try:
+        dv.plot_lstm_forecast(
+            real_series=real_data,
+            predictions=reconstructed_history, # Це "навчена" історія
+            future_pred=future_final,          # Це прогноз
+            window_size=window,
+            rmse=rmse,
+            save_path=output_dir / 'lstm_hybrid_forecast.svg',
+            title="Hybrid Deep Learning (Linear Trend + LSTM Seasonality)"
+        )
+        print(f"  [PLOT] {output_dir / 'lstm_hybrid_forecast.svg'}")
+    except Exception as e:
+        print(f"  [ERROR] Візуалізація: {e}")
     import neural as nn 
     
     synth_path = output_dir / 'synthetic_data.csv'
-    model_path = output_dir / 'lstm_model_v2.keras' # v2 щоб не плутати зі старою
+    model_path = output_dir / 'lstm_model_v2.keras'
     
     # 1. Синтетика
     if not synth_path.exists():
@@ -138,51 +282,42 @@ def mode_deep_learning(df_prepared, config, output_dir):
     
     learner = nn.DeepLearner(window_size=config['dl_window'])
     
-    # 2. Завантаження/Навчання
+    # 2. Навчання / Завантаження
     model_loaded = False
     if not config.get('force_retrain'):
         if learner.load_model(model_path):
             print("  [INFO] Використовуємо попередньо навчену модель.")
-            # Важливо: ініт скейлера на реальних даних
-            learner.prepare_data(df_prepared['r_id']) 
+            learner.prepare_data(df_prepared['r_id']) # Init scaler
             model_loaded = True
             
     if not model_loaded:
         print("\n[TRAIN] Навчання на синтетиці з календарем...")
         df_synth = pd.read_csv(synth_path)
-        
-        # Створення датового індексу для синтетики (імітація)
-        # Припускаємо, що синтетика продовжує структуру
         start_date = pd.to_datetime('2020-01-01')
         df_synth.index = pd.date_range(start=start_date, periods=len(df_synth), freq='D')
         
-        # Передаємо Series (з індексом!)
         X_train, y_train = learner.prepare_data(df_synth['combined'])
-        
         learner.build_lstm_model()
         learner.train(X_train, y_train, epochs=config['dl_epochs'])
         learner.save_model(model_path)
 
     # 3. Валідація
     print("\n[FORECAST] Валідація на реальних даних...")
-    real_data = df_prepared['r_id'] # Це Series з DateTimeIndex
+    real_data = df_prepared['r_id']
     k_steps = config['k_steps']
     window = config['dl_window']
     
+    # Тест
     split_idx = len(real_data) - k_steps
-    # Беремо слайс (Series збереже індекс дат)
     val_data_slice = real_data.iloc[split_idx-window:] 
     
-    # Готуємо X_test (автоматично витягне дати з індексу)
     X_test, y_test_scaled = learner.prepare_data(val_data_slice, fit_scaler=False)
-    
     val_pred = learner.predict(X_test)
     
-    # Денормалізація факту
     y_test_real = learner.scaler.inverse_transform(y_test_scaled.reshape(-1, 1)).flatten()
     val_pred_flat = val_pred.flatten()
     
-    # Вирівнювання
+    # Метрики
     min_len = min(len(y_test_real), len(val_pred_flat))
     y_test_real = y_test_real[:min_len]
     val_pred_flat = val_pred_flat[:min_len]
@@ -193,27 +328,22 @@ def mode_deep_learning(df_prepared, config, output_dir):
     
     print(f"  [METRICS] RMSE: {rmse:.2f}, MAE: {mae:.2f}, MAPE: {mape:.2f}%")
     
-    # 4. ЕКСТРАПОЛЯЦІЯ (Головний фікс)
+    # 4. ЕКСТРАПОЛЯЦІЯ (ВИПРАВЛЕНО)
     # Беремо останнє вікно
     last_window_series = real_data.iloc[-window:]
     
-    # Отримуємо фічі для останнього вікна (3 канали: Val, Sin, Cos)
-    # prepare_data повертає (samples, window, 3), (samples,)
-    # нам треба X (перший елемент кортежу)
-    last_window_features, _ = learner.prepare_data(last_window_series, fit_scaler=False)
+    # --- FIX: Використовуємо новий метод, який не шукає 'y' ---
+    last_window_features = learner.prepare_forecast_input(last_window_series)
+    # -----------------------------------------------------------
     
-    # Останній відомий момент часу
     last_date = real_data.index[-1]
-    
-    # Викликаємо extrapolate з датою!
-    # last_window_features має розмір (1, 60, 3)
     future_pred = learner.extrapolate(last_window_features, start_date=last_date, steps=k_steps)
     
     if np.isnan(future_pred).any():
         print("  [WARN] NaN у прогнозі! Фікс...")
         future_pred = np.nan_to_num(future_pred, nan=real_data.iloc[-1])
 
-    # 5. Повний прохід для графіка
+    # 5. Візуалізація
     X_full, _ = learner.prepare_data(real_data, fit_scaler=False)
     full_predictions = learner.predict(X_full)
 
@@ -229,7 +359,6 @@ def mode_deep_learning(df_prepared, config, output_dir):
         print(f"  [PLOT] {output_dir / 'lstm_embeddings_forecast.svg'}")
     except Exception as e:
         print(f"  [ERROR] Візуалізація: {e}")
-        
         
 def mode_filtering(df_raw, df_prepared, config, output_dir):   
     df_res = pl.run_pipeline(df_prepared, config)
