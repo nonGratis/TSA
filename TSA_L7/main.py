@@ -124,39 +124,45 @@ def parse_arguments():
 
 def mode_deep_learning(df_prepared, config, output_dir):
     print("\n[MODE] DEEP LEARNING (Hybrid: Linear Trend + LSTM Residuals)")
-
     
-    # Створюємо окрему папку для моделей
+    # Папка для моделей
     models_dir = Path(__file__).parent / 'models'
     models_dir.mkdir(parents=True, exist_ok=True)
     
-    # --- ЕТАП 1: DETRENDING ---
-    print("  [PREP] Виділення глобального лінійного тренду...")
+    # 1. Detrending
+    print("  [PREP] Виділення тренду...")
     real_data = df_prepared['r_id']
-    
     X_time = np.arange(len(real_data)).reshape(-1, 1)
     y_val = real_data.values.reshape(-1, 1)
     
     trend_model = LinearRegression()
     trend_model.fit(X_time, y_val)
     trend_values = trend_model.predict(X_time).flatten()
-    
     residuals = real_data - trend_values
     residuals.name = 'residuals'
     
-    # --- ЕТАП 2: РОБОТА З LSTM ---
-    synth_path = output_dir / 'synthetic_residuals.csv'
+    # 2. Визначення імені файлу (ДЕТАЛЬНИЙ НЕЙМІНГ)
+    w_size = config['dl_window']
+    n_epochs = config['dl_epochs']
     
-    # Визначаємо шлях до моделі
     if config.get('model_path'):
         model_path = Path(config['model_path'])
-        print(f"  [CONFIG] Вибрана модель: {model_path}")
+        print(f"  [CONFIG] Кастомна модель: {model_path}")
     else:
-        model_path = models_dir / 'lstm_hybrid.keras'
+        # Автоматичне ім'я: lstm_hybrid_w60_e50.keras
+        model_name = f"lstm_hybrid_w{w_size}_e{n_epochs}.keras"
+        model_path = models_dir / model_name
+        print(f"  [CONFIG] Авто-шлях моделі: {model_path}")
+
+    # Файл історії (без часу, прив'язаний до моделі)
+    history_file = models_dir / f"{model_path.stem}_history.csv"
+
+    # Синтетика
+    synth_path = output_dir / 'synthetic_residuals.csv'
     
-    # Логіка синтетики (якщо треба вчити, а даних немає)
+    # Якщо моделі немає - треба вчити. Якщо немає синтетики - генеруємо.
     if not model_path.exists() and not synth_path.exists():
-        print(f"\n[AUTO-GEN] Генеруємо синтетичні залишки для навчання...")
+        print(f"\n[AUTO-GEN] Генерація синтетичних залишків...")
         gen_config = config.copy()
         gen_config['synthetic_length'] = 10000
         gen_config['synthetic_trend'] = 'bootstrap'
@@ -171,100 +177,93 @@ def mode_deep_learning(df_prepared, config, output_dir):
             if os.path.exists(synth_path): os.remove(synth_path)
             (output_dir / 'synthetic_data.csv').rename(synth_path)
 
-    learner = nn.DeepLearner(window_size=config['dl_window'])
+    learner = nn.DeepLearner(window_size=w_size)
     
-    # ЛОГІКА: ЗАВАНТАЖИТИ АБО ВЧИТИ
+    # 3. Логіка: LOAD or TRAIN
     model_loaded = False
-    
-    # 1. Спробуємо завантажити
     if model_path.exists():
         if learner.load_model(model_path):
-            print(f"  [INFO] Модель успішно завантажено з {model_path}")
-            learner.prepare_data(residuals) # Ініціалізація скейлера
+            print(f"  [INFO] Знайдено готову модель. Пропускаємо навчання.")
+            learner.prepare_data(residuals) # Init scaler
             model_loaded = True
         else:
-            print(f"  [WARN] Не вдалося завантажити модель, будемо навчати нову.")
-    
-    # 2. Якщо не завантажили — вчимо
+            print(f"  [WARN] Файл моделі пошкоджено. Перенавчання...")
+            
     if not model_loaded:
-        print(f"\n[TRAIN] Навчання нової моделі (збереження в {model_path})...")
+        print(f"\n[TRAIN] Старт навчання ({n_epochs} епох)...")
         if synth_path.exists():
             df_synth = pd.read_csv(synth_path)
             train_series = df_synth['combined']
         else:
-            train_series = residuals # Fallback
+            train_series = residuals 
 
         X_train, y_train = learner.prepare_data(train_series)
         learner.build_lstm_model()
         
-        # Навчання + Отримання історії
-        history = learner.train(X_train, y_train, epochs=config['dl_epochs'])
+        history = learner.train(X_train, y_train, epochs=n_epochs)
         
-        # Збереження моделі
+        # Збереження
         learner.save_model(model_path)
         
-        # ЗБЕРЕЖЕННЯ ІСТОРІЇ НАВЧАННЯ (Епохи)
-        history_df = pd.DataFrame(history.history)
-        history_file = models_dir / f"{model_path.stem}_history.csv"
-        history_df.to_csv(history_file, index_label='epoch')
-        print(f"  [INFO] Дані про епохи збережено в: {history_file}")
+        # Збереження історії навчання (без часу в назві, як ви просили)
+        hist_df = pd.DataFrame(history.history)
+        hist_df.to_csv(history_file, index_label='epoch')
+        print(f"  [INFO] Історія навчання збережена: {history_file}")
 
-    # --- ЕТАП 3: ВАЛІДАЦІЯ ---
-    print("\n[FORECAST] Валідація та Реконструкція...")
+    # 4. Валідація
+    print("\n[FORECAST] Валідація...")
     k_steps = config['k_steps']
-    window = config['dl_window']
-    
     split_idx = len(residuals) - k_steps
+    
+    # Тренд
     X_test_time = np.arange(split_idx, len(real_data)).reshape(-1, 1)
     trend_pred_test = trend_model.predict(X_test_time).flatten()
     
-    resid_test_input = residuals.iloc[split_idx-window:]
-    X_test_resid, _ = learner.prepare_data(resid_test_input, fit_scaler=False)
-    resid_pred_test = learner.predict(X_test_resid).flatten()
+    # LSTM
+    resid_input = residuals.iloc[split_idx-w_size:]
+    X_test, _ = learner.prepare_data(resid_input, fit_scaler=False)
+    resid_pred_test = learner.predict(X_test).flatten()
     
     min_len = min(len(trend_pred_test), len(resid_pred_test))
-    final_pred_test = trend_pred_test[:min_len] + resid_pred_test[:min_len]
-    actual_test = real_data.iloc[split_idx:].values[:min_len]
+    final_pred = trend_pred_test[:min_len] + resid_pred_test[:min_len]
+    actual = real_data.iloc[split_idx:].values[:min_len]
     
-    rmse = mt.calculate_rmse(actual_test, final_pred_test)
-    mae = mt.calculate_mae(actual_test, final_pred_test)
-    mape = mt.calculate_percent_divergence(actual_test, final_pred_test)
+    rmse = mt.calculate_rmse(actual, final_pred)
+    mae = mt.calculate_mae(actual, final_pred)
+    mape = mt.calculate_percent_divergence(actual, final_pred)
     print(f"  [METRICS] RMSE: {rmse:.2f}, MAE: {mae:.2f}, MAPE: {mape:.2f}%")
     
     # --- ЕТАП 4: ЕКСТРАПОЛЯЦІЯ ---
     print(f"\n[EXTRAPOLATE] Прогноз на {k_steps} кроків...")
     last_idx = len(real_data)
-    future_time_idx = np.arange(last_idx, last_idx + k_steps).reshape(-1, 1)
-    future_trend = trend_model.predict(future_time_idx).flatten()
+    future_time = np.arange(last_idx, last_idx + k_steps).reshape(-1, 1)
+    future_trend = trend_model.predict(future_time).flatten()
     
-    last_window_resid = residuals.iloc[-window:]
-    last_window_feat = learner.prepare_forecast_input(last_window_resid)
-    future_resid = learner.extrapolate(last_window_feat, steps=k_steps)
+    last_window = residuals.iloc[-w_size:]
+    last_feat = learner.prepare_forecast_input(last_window)
+    future_resid = learner.extrapolate(last_feat, steps=k_steps)
     
     if np.isnan(future_resid).any(): future_resid = np.nan_to_num(future_resid)
     future_final = future_trend + future_resid
-
-    # --- ЕТАП 5: ВІЗУАЛІЗАЦІЯ ---
-    X_full_resid, _ = learner.prepare_data(residuals, fit_scaler=False)
-    hist_resid_pred = learner.predict(X_full_resid).flatten()
-    hist_trend = trend_values[window:] 
-    L = min(len(hist_trend), len(hist_resid_pred))
-    reconstructed_history = hist_trend[:L] + hist_resid_pred[:L]
+    X_full, _ = learner.prepare_data(residuals, fit_scaler=False)
+    full_resid_pred = learner.predict(X_full).flatten()
+    full_trend = trend_values[w_size:]
+    L = min(len(full_trend), len(full_resid_pred))
+    rec_history = full_trend[:L] + full_resid_pred[:L]
     
     try:
         dv.plot_lstm_forecast(
             real_series=real_data,
-            predictions=reconstructed_history,
+            predictions=rec_history,
             future_pred=future_final,
-            window_size=window,
+            window_size=w_size,
             rmse=rmse,
             save_path=output_dir / 'lstm_hybrid_forecast.svg',
-            title="Hybrid Forecast (Linear Trend + LSTM Residuals)"
+            title=f"Hybrid Forecast (w={w_size}, e={n_epochs})"
         )
         print(f"  [PLOT] {output_dir / 'lstm_hybrid_forecast.svg'}")
     except Exception as e:
         print(f"  [ERROR] Візуалізація: {e}")
-
         
 def mode_filtering(df_raw, df_prepared, config, output_dir):   
     df_res = pl.run_pipeline(df_prepared, config)
