@@ -20,6 +20,7 @@ import clustering as clust
 import synthetic as synth
 import regression as reg
 import selector as sel
+import neural as nn
 
 def parse_arguments():
     """Парсинг аргументів командного рядка."""
@@ -50,8 +51,8 @@ def parse_arguments():
     
     # Режим роботи
     parser.add_argument('--mode', type=str, default='full',
-                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'ma-grid', 'full', 'auto-select', 'regression'],
-                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, ma-grid, full, auto-select, regression')
+                        choices=['filtering', 'analysis', 'synthetic', 'forecasting', 'arima-grid', 'ma-grid', 'full', 'auto-select', 'regression', 'deep-learning'],
+                        help='Режим роботи: filtering, analysis, synthetic, forecasting, arima-grid, ma-grid, full, auto-select, regression, deep-learning')
     
     # Параметри фільтрації
     parser.add_argument('--state-dim', type=int, default=None, choices=[2, 3],
@@ -105,12 +106,72 @@ def parse_arguments():
     
     parser.add_argument('--poly-degree', type=int, default=2, help='Ступінь полінома для регресії')
     
+    # Параметри нейромережі
+    parser.add_argument('--dl-epochs', type=int, default=50, 
+                       help='Кількість епох навчання (default: 50)')
+    parser.add_argument('--dl-window', type=int, default=60, 
+                       help='Розмір вікна (Lookback) для LSTM (default: 60)')
+    parser.add_argument('--force-retrain', action='store_true', 
+                       help='Примусове перенавчання моделі (ігнорувати збережений файл)')   
+    
     # Виведення
     parser.add_argument('--output-dir', type=str, default='images',
                        help='Директорія для збереження графіків')
     
     return parser.parse_args()
 
+def mode_deep_learning(df_prepared, config, output_dir):
+    """Deep learning mode with clean separation of concerns."""
+    print("\n[MODE] DEEP LEARNING (LSTM для Time Series)")
+    
+    # Завантаження даних для навчання
+    try:
+        synth_path = output_dir / 'synthetic_data.csv'
+        df_synth = pd.read_csv(synth_path)
+        data_train = df_synth['combined']
+        print(f"  [INFO] Завантажено {len(data_train)} синтетичних записів для навчання")
+    except:
+        print("  [WARN] Синтетика не знайдена. Використовуємо реальні дані...")
+        data_train = df_prepared['r_id']
+
+    # Ініціалізація та підготовка
+    learner = nn.DeepLearner(window_size=config['dl_window'])
+    X_train, y_train = learner.prepare_data(data_train)
+    print(f"  Тензори сформовано: X={X_train.shape}, y={y_train.shape}")
+    
+    # Навчання моделі
+    learner.build_lstm_model()
+    history = learner.train(X_train, y_train, epochs=config['dl_epochs'])
+    
+    # Валідація на реальних даних
+    real_series = df_prepared['r_id']
+    X_real, y_real = learner.prepare_data(real_series)
+    predictions = learner.predict(X_real)
+    
+    # Метрики
+    real_trimmed = real_series.values[config['dl_window']:]
+    rmse = mt.calculate_rmse(real_trimmed, predictions.flatten())
+    print(f"\n[RESULT] LSTM RMSE на реальних даних: {rmse:.2f}")
+    
+    # Екстраполяція
+    last_window_scaled = learner.scaler.transform(
+        real_series.values[-config['dl_window']:].reshape(-1, 1)
+    )
+    future_pred = learner.extrapolate(last_window_scaled, steps=config['k_steps'])
+    
+    # Візуалізація (делегована в data_vizer)
+    save_path = str(output_dir / 'lstm_forecast.svg')
+    dv.plot_lstm_forecast(
+        real_series=real_series,
+        predictions=predictions,
+        future_pred=future_pred,
+        window_size=config['dl_window'],
+        rmse=rmse,
+        title='Deep Learning (LSTM) Forecast',
+        save_path=save_path
+    )
+    
+    print(f"  Графік збережено: {save_path}")
 
 def mode_filtering(df_raw, df_prepared, config, output_dir):   
     df_res = pl.run_pipeline(df_prepared, config)
@@ -699,6 +760,8 @@ def main():
             selector = sel.ModelSelector(df_prepared['r_id'], freq_period=config['decomp_period'] or 24)
             best_model_name, best_forecast = selector.select_best_model(k_steps=config['k_steps'])
             print(f"\n[RESULT] Переможець алгоритму: {best_model_name}")
+        elif args.mode == 'deep-learning':
+            mode_deep_learning(df_prepared, config, output_dir)
                 
     except Exception as e:
         import traceback
