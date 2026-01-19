@@ -121,57 +121,102 @@ def parse_arguments():
     return parser.parse_args()
 
 def mode_deep_learning(df_prepared, config, output_dir):
-    """Deep learning mode with clean separation of concerns."""
     print("\n[MODE] DEEP LEARNING (LSTM для Time Series)")
+    import neural as nn 
     
-    # Завантаження даних для навчання
-    try:
-        synth_path = output_dir / 'synthetic_data.csv'
-        df_synth = pd.read_csv(synth_path)
-        data_train = df_synth['combined']
-        print(f"  [INFO] Завантажено {len(data_train)} синтетичних записів для навчання")
-    except:
-        print("  [WARN] Синтетика не знайдена. Використовуємо реальні дані...")
-        data_train = df_prepared['r_id']
-
-    # Ініціалізація та підготовка
+    synth_path = output_dir / 'synthetic_data.csv'
+    model_path = output_dir / 'lstm_model.keras'
+    
+    # 1. Перевірка наявності синтетики
+    if not synth_path.exists():
+        print(f"\n[AUTO-GEN] Генеруємо синтетичні дані (Bootstrap)...")
+        gen_config = config.copy()
+        gen_config['synthetic_length'] = 10000
+        gen_config['synthetic_trend'] = 'bootstrap'
+        analysis_res = mode_analysis(df_prepared, config, output_dir)
+        mode_synthetic(df_prepared, analysis_res, gen_config, output_dir)
+    
     learner = nn.DeepLearner(window_size=config['dl_window'])
-    X_train, y_train = learner.prepare_data(data_train)
-    print(f"  Тензори сформовано: X={X_train.shape}, y={y_train.shape}")
     
-    # Навчання моделі
-    learner.build_lstm_model()
-    history = learner.train(X_train, y_train, epochs=config['dl_epochs'])
+    # 2. ГОЛОВНА ЛОГІКА: ЗАВАНТАЖИТИ АБО ВЧИТИ
+    model_loaded = False
+    if not config.get('force_retrain'):
+        if learner.load_model(model_path):
+            print("  [INFO] Використовуємо попередньо навчену модель.")
+            # Ініціалізуємо скейлер на реальних даних
+            learner.prepare_data(df_prepared['r_id'])
+            model_loaded = True
+            
+    if not model_loaded:
+        print("\n[TRAIN] Починаємо навчання (це займе час)...")
+        df_synth = pd.read_csv(synth_path)
+        print(f"  [DATA] Вхідні дані: {len(df_synth)} рядків (Synthetic)")
+        
+        X_train, y_train = learner.prepare_data(df_synth['combined'])
+        learner.build_lstm_model()
+        learner.train(X_train, y_train, epochs=config['dl_epochs'])
+        learner.save_model(model_path)
+
+    # 3. Валідація і Прогноз
+    print("\n[FORECAST] Розрахунок прогнозу...")
+    real_data = df_prepared['r_id']
+    k_steps = config['k_steps']
+    window = config['dl_window']
     
-    # Валідація на реальних даних
-    real_series = df_prepared['r_id']
-    X_real, y_real = learner.prepare_data(real_series)
-    predictions = learner.predict(X_real)
+    # Валідація на тестовій вибірці (для метрик)
+    split_idx = len(real_data) - k_steps
     
-    # Метрики
-    real_trimmed = real_series.values[config['dl_window']:]
-    rmse = mt.calculate_rmse(real_trimmed, predictions.flatten())
-    print(f"\n[RESULT] LSTM RMSE на реальних даних: {rmse:.2f}")
+    # Беремо дані для тесту
+    val_data_slice = real_data.iloc[split_idx-window:].values
     
-    # Екстраполяція
-    last_window_scaled = learner.scaler.transform(
-        real_series.values[-config['dl_window']:].reshape(-1, 1)
-    )
-    future_pred = learner.extrapolate(last_window_scaled, steps=config['k_steps'])
+    # X_test - вхідні вікна, y_test_scaled - цільові значення (НОРМАЛІЗОВАНІ 0..1)
+    X_test, y_test_scaled = learner.prepare_data(pd.Series(val_data_slice), fit_scaler=False)
     
-    # Візуалізація (делегована в data_vizer)
-    save_path = str(output_dir / 'lstm_forecast.svg')
-    dv.plot_lstm_forecast(
-        real_series=real_series,
-        predictions=predictions,
-        future_pred=future_pred,
-        window_size=config['dl_window'],
-        rmse=rmse,
-        title='Deep Learning (LSTM) Forecast',
-        save_path=save_path
-    )
+    # val_pred - прогноз (ВЖЕ В РЕАЛЬНИХ ЧИСЛАХ)
+    val_pred = learner.predict(X_test)
     
-    print(f"  Графік збережено: {save_path}")
+    # [FIX] Перетворюємо y_test_scaled назад у реальні числа для коректного порівняння
+    y_test_real = learner.scaler.inverse_transform(y_test_scaled.reshape(-1, 1)).flatten()
+    val_pred_flat = val_pred.flatten()
+    
+    # Вирівнюємо довжини (іноді буває різниця в 1 точку через вікна)
+    min_len = min(len(y_test_real), len(val_pred_flat))
+    y_test_real = y_test_real[:min_len]
+    val_pred_flat = val_pred_flat[:min_len]
+    
+    # Розрахунок метрик (тепер числа одного порядку)
+    rmse = mt.calculate_rmse(y_test_real, val_pred_flat)
+    mae = mt.calculate_mae(y_test_real, val_pred_flat)
+    mape = mt.calculate_percent_divergence(y_test_real, val_pred_flat)
+    
+    print(f"  [METRICS] RMSE: {rmse:.2f}, MAE: {mae:.2f}, MAPE: {mape:.2f}%")
+    
+    # Екстраполяція (майбутнє)
+    last_window_scaled = learner.scaler.transform(real_data.values[-window:].reshape(-1, 1))
+    future_pred = learner.extrapolate(last_window_scaled, steps=k_steps)
+    
+    # Перевірка на NaN (щоб графік не був білим)
+    if np.isnan(future_pred).any():
+        print("  [WARN] Прогноз містить NaN! Замінюємо на останнє відоме значення.")
+        future_pred = np.nan_to_num(future_pred, nan=real_data.iloc[-1])
+
+    # 4. Підготовка повного прогнозу для візуалізації
+    X_full, _ = learner.prepare_data(real_data, fit_scaler=False)
+    full_predictions = learner.predict(X_full)
+
+    # 5. Візуалізація
+    try:
+        dv.plot_lstm_forecast(
+            real_series=real_data,
+            predictions=full_predictions.flatten(),
+            future_pred=future_pred,
+            window_size=window,
+            rmse=rmse,
+            save_path=output_dir / 'lstm_forecast.svg'
+        )
+        print(f"  [PLOT] {output_dir / 'lstm_forecast.svg'}")
+    except Exception as e:
+        print(f"  [ERROR] Не вдалося побудувати графік: {e}")
 
 def mode_filtering(df_raw, df_prepared, config, output_dir):   
     df_res = pl.run_pipeline(df_prepared, config)

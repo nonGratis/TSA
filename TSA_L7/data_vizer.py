@@ -3,6 +3,7 @@ import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict, Union, Tuple
+from scipy.constants import point
 from scipy.stats import norm, chi2
 
 COLOR_PRIMARY = '#1323e9'
@@ -967,6 +968,68 @@ def plot_regression_comparison(
     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     
     plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_lstm_forecast(
+    real_series: pd.Series,
+    predictions: np.ndarray,
+    future_pred: np.ndarray,
+    window_size: int,
+    rmse: float,
+    title: str = "Deep Learning (LSTM) Forecast",
+    save_path: Optional[str] = None
+) -> None:
+    """
+    Візуалізація результатів LSTM прогнозування.
+    """
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Реальна історія
+    # last 10% of pints for context
+    points_to_show = max(int(len(real_series) * 0.1), window_size)
+    start_idx = len(real_series) - points_to_show
+    ax.plot(np.arange(start_idx, len(real_series)), 
+            real_series.values[start_idx:], 
+            label='Реальна історія', 
+            color=COLOR_BLACK, linewidth=1.5)   
+
+    
+    # Валідація (зсунута на window_size)
+    train_range = np.arange(window_size, len(real_series))
+    
+    # Перевірка розмірів для безпеки (якщо prediction коротший)
+    if len(predictions) < len(train_range):
+        train_range = train_range[-len(predictions):]
+        
+    ax.plot(train_range, predictions, label='LSTM Валідація', 
+            color=COLOR_SECONDARY, alpha=0.7, linewidth=2)
+    
+    # Прогноз на майбутнє
+    future_range = np.arange(len(real_series), len(real_series) + len(future_pred))
+    ax.plot(future_range, future_pred, label='LSTM Прогноз', 
+            color=COLOR_ACCENT, linewidth=2.5, marker='o', markersize=3)
+    
+    # Вертикальна лінія початку прогнозу
+    ax.axvline(x=len(real_series)-1, color=COLOR_GRAY, linestyle=':', 
+               linewidth=2, alpha=0.7, label='Початок прогнозу')
+    
+    ax.set_xlabel('Індекс часу', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Значення показника', fontsize=12, fontweight='bold')
+    ax.set_title(f'{title}\nRMSE: {rmse:.2f}', fontsize=14, fontweight='bold', pad=15)
+    ax.legend(fontsize=10, loc='best', framealpha=0.95)
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    
+    if save_path:
+        plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
+        plt.close()
+    else:
+        plt.show()
     
     if save_path:
         plt.savefig(save_path, format='svg', bbox_inches='tight', dpi=300)
