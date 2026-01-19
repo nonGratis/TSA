@@ -121,15 +121,15 @@ def parse_arguments():
     return parser.parse_args()
 
 def mode_deep_learning(df_prepared, config, output_dir):
-    print("\n[MODE] DEEP LEARNING (LSTM для Time Series)")
+    print("\n[MODE] DEEP LEARNING (LSTM + Time Embeddings)")
     import neural as nn 
     
     synth_path = output_dir / 'synthetic_data.csv'
-    model_path = output_dir / 'lstm_model.keras'
+    model_path = output_dir / 'lstm_model_v2.keras' # v2 щоб не плутати зі старою
     
-    # 1. Перевірка наявності синтетики
+    # 1. Синтетика
     if not synth_path.exists():
-        print(f"\n[AUTO-GEN] Генеруємо синтетичні дані (Bootstrap)...")
+        print(f"\n[AUTO-GEN] Генеруємо синтетичні дані...")
         gen_config = config.copy()
         gen_config['synthetic_length'] = 10000
         gen_config['synthetic_trend'] = 'bootstrap'
@@ -138,73 +138,85 @@ def mode_deep_learning(df_prepared, config, output_dir):
     
     learner = nn.DeepLearner(window_size=config['dl_window'])
     
-    # 2. ГОЛОВНА ЛОГІКА: ЗАВАНТАЖИТИ АБО ВЧИТИ
+    # 2. Завантаження/Навчання
     model_loaded = False
     if not config.get('force_retrain'):
         if learner.load_model(model_path):
             print("  [INFO] Використовуємо попередньо навчену модель.")
-            # Ініціалізуємо скейлер на реальних даних
-            learner.prepare_data(df_prepared['r_id'])
+            # Важливо: ініт скейлера на реальних даних
+            learner.prepare_data(df_prepared['r_id']) 
             model_loaded = True
             
     if not model_loaded:
-        print("\n[TRAIN] Починаємо навчання (це займе час)...")
+        print("\n[TRAIN] Навчання на синтетиці з календарем...")
         df_synth = pd.read_csv(synth_path)
-        print(f"  [DATA] Вхідні дані: {len(df_synth)} рядків (Synthetic)")
         
+        # Створення датового індексу для синтетики (імітація)
+        # Припускаємо, що синтетика продовжує структуру
+        start_date = pd.to_datetime('2020-01-01')
+        df_synth.index = pd.date_range(start=start_date, periods=len(df_synth), freq='D')
+        
+        # Передаємо Series (з індексом!)
         X_train, y_train = learner.prepare_data(df_synth['combined'])
+        
         learner.build_lstm_model()
         learner.train(X_train, y_train, epochs=config['dl_epochs'])
         learner.save_model(model_path)
 
-    # 3. Валідація і Прогноз
-    print("\n[FORECAST] Розрахунок прогнозу...")
-    real_data = df_prepared['r_id']
+    # 3. Валідація
+    print("\n[FORECAST] Валідація на реальних даних...")
+    real_data = df_prepared['r_id'] # Це Series з DateTimeIndex
     k_steps = config['k_steps']
     window = config['dl_window']
     
-    # Валідація на тестовій вибірці (для метрик)
     split_idx = len(real_data) - k_steps
+    # Беремо слайс (Series збереже індекс дат)
+    val_data_slice = real_data.iloc[split_idx-window:] 
     
-    # Беремо дані для тесту
-    val_data_slice = real_data.iloc[split_idx-window:].values
+    # Готуємо X_test (автоматично витягне дати з індексу)
+    X_test, y_test_scaled = learner.prepare_data(val_data_slice, fit_scaler=False)
     
-    # X_test - вхідні вікна, y_test_scaled - цільові значення (НОРМАЛІЗОВАНІ 0..1)
-    X_test, y_test_scaled = learner.prepare_data(pd.Series(val_data_slice), fit_scaler=False)
-    
-    # val_pred - прогноз (ВЖЕ В РЕАЛЬНИХ ЧИСЛАХ)
     val_pred = learner.predict(X_test)
     
-    # [FIX] Перетворюємо y_test_scaled назад у реальні числа для коректного порівняння
+    # Денормалізація факту
     y_test_real = learner.scaler.inverse_transform(y_test_scaled.reshape(-1, 1)).flatten()
     val_pred_flat = val_pred.flatten()
     
-    # Вирівнюємо довжини (іноді буває різниця в 1 точку через вікна)
+    # Вирівнювання
     min_len = min(len(y_test_real), len(val_pred_flat))
     y_test_real = y_test_real[:min_len]
     val_pred_flat = val_pred_flat[:min_len]
     
-    # Розрахунок метрик (тепер числа одного порядку)
     rmse = mt.calculate_rmse(y_test_real, val_pred_flat)
     mae = mt.calculate_mae(y_test_real, val_pred_flat)
     mape = mt.calculate_percent_divergence(y_test_real, val_pred_flat)
     
     print(f"  [METRICS] RMSE: {rmse:.2f}, MAE: {mae:.2f}, MAPE: {mape:.2f}%")
     
-    # Екстраполяція (майбутнє)
-    last_window_scaled = learner.scaler.transform(real_data.values[-window:].reshape(-1, 1))
-    future_pred = learner.extrapolate(last_window_scaled, steps=k_steps)
+    # 4. ЕКСТРАПОЛЯЦІЯ (Головний фікс)
+    # Беремо останнє вікно
+    last_window_series = real_data.iloc[-window:]
     
-    # Перевірка на NaN (щоб графік не був білим)
+    # Отримуємо фічі для останнього вікна (3 канали: Val, Sin, Cos)
+    # prepare_data повертає (samples, window, 3), (samples,)
+    # нам треба X (перший елемент кортежу)
+    last_window_features, _ = learner.prepare_data(last_window_series, fit_scaler=False)
+    
+    # Останній відомий момент часу
+    last_date = real_data.index[-1]
+    
+    # Викликаємо extrapolate з датою!
+    # last_window_features має розмір (1, 60, 3)
+    future_pred = learner.extrapolate(last_window_features, start_date=last_date, steps=k_steps)
+    
     if np.isnan(future_pred).any():
-        print("  [WARN] Прогноз містить NaN! Замінюємо на останнє відоме значення.")
+        print("  [WARN] NaN у прогнозі! Фікс...")
         future_pred = np.nan_to_num(future_pred, nan=real_data.iloc[-1])
 
-    # 4. Підготовка повного прогнозу для візуалізації
+    # 5. Повний прохід для графіка
     X_full, _ = learner.prepare_data(real_data, fit_scaler=False)
     full_predictions = learner.predict(X_full)
 
-    # 5. Візуалізація
     try:
         dv.plot_lstm_forecast(
             real_series=real_data,
@@ -212,12 +224,13 @@ def mode_deep_learning(df_prepared, config, output_dir):
             future_pred=future_pred,
             window_size=window,
             rmse=rmse,
-            save_path=output_dir / 'lstm_forecast.svg'
+            save_path=output_dir / 'lstm_embeddings_forecast.svg'
         )
-        print(f"  [PLOT] {output_dir / 'lstm_forecast.svg'}")
+        print(f"  [PLOT] {output_dir / 'lstm_embeddings_forecast.svg'}")
     except Exception as e:
-        print(f"  [ERROR] Не вдалося побудувати графік: {e}")
-
+        print(f"  [ERROR] Візуалізація: {e}")
+        
+        
 def mode_filtering(df_raw, df_prepared, config, output_dir):   
     df_res = pl.run_pipeline(df_prepared, config)
     
